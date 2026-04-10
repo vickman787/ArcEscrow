@@ -696,6 +696,11 @@ function App() {
               <strong>{formatTokenAmount(contractBalance, tokenDecimals)} {tokenSymbol}</strong>
             </div>
           </div>
+          <div className="hero-links">
+            <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer">
+              Get Arc test USDC
+            </a>
+          </div>
         </div>
       </section>
 
@@ -811,6 +816,11 @@ function App() {
             <p className="hint">
               <a href={getExplorerUrl(`/address/${contractAddress}`)} target="_blank" rel="noreferrer">
                 View contract on ArcScan
+              </a>
+            </p>
+            <p className="hint">
+              <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer">
+                Need test funds? Open the Circle faucet
               </a>
             </p>
           </form>
@@ -1129,6 +1139,16 @@ function App() {
                 This app is configured for Arc Testnet and settles with USDC. Users should connect
                 an EVM wallet, switch to Arc Testnet, and make sure they hold enough test USDC to
                 create and fund escrows.
+              </p>
+            </article>
+            <article className="panel faq-item">
+              <h3>Where do I get test USDC?</h3>
+              <p>
+                Use the Circle faucet at{' '}
+                <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer">
+                  faucet.circle.com
+                </a>{' '}
+                to request test funds before creating or funding an escrow on Arc Testnet.
               </p>
             </article>
           </div>

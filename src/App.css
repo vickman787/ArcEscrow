@@ -175,6 +175,22 @@
   color: #f5f7f8;
 }
 
+.hero-links {
+  margin-top: 1rem;
+}
+
+.hero-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0 0.95rem;
+  border: 1px solid rgba(244, 251, 247, 0.22);
+  border-radius: 999px;
+  color: #f5f7f8;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .workspace {
   width: min(1160px, calc(100% - 2rem));
   margin: 1.25rem auto 3rem;
