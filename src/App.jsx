@@ -1077,6 +1077,63 @@ function App() {
           </section>
         </div>
 
+        <section className="faq-section">
+          <div className="faq-section__intro">
+            <p className="section-label">FAQ</p>
+            <h2>How ArcEscrow works</h2>
+          </div>
+          <div className="faq-grid">
+            <article className="panel faq-item">
+              <h3>How does a seller use the app?</h3>
+              <p>
+                The seller connects a wallet, fills in the item title, description, and price, then
+                generates a buyer link. That link carries the seller address and listing details so
+                the buyer lands on a ready-to-use order page.
+              </p>
+            </article>
+            <article className="panel faq-item">
+              <h3>How does a buyer pay safely?</h3>
+              <p>
+                The buyer opens the seller link, reviews the order, and creates an escrow on Arc
+                Network. After that, the buyer approves USDC and funds the escrow contract instead
+                of sending funds directly to the seller.
+              </p>
+            </article>
+            <article className="panel faq-item">
+              <h3>What do approve, fund, release, and refund mean?</h3>
+              <p>
+                Approve gives the escrow contract permission to move the exact USDC amount. Fund
+                locks the buyer&apos;s funds in the contract. Release sends the locked funds to the
+                seller. Refund returns the locked funds to the buyer.
+              </p>
+            </article>
+            <article className="panel faq-item">
+              <h3>Why do I need the escrow ID?</h3>
+              <p>
+                Every escrow created onchain gets its own ID. The app uses that ID to load the
+                escrow record and to run the next steps like approval, funding, release, refund, and
+                inspection.
+              </p>
+            </article>
+            <article className="panel faq-item">
+              <h3>Who controls the escrow right now?</h3>
+              <p>
+                In the currently connected contract flow, the buyer creates the escrow, funds it,
+                and can release or refund it. The seller prepares the listing link, but the escrow
+                lifecycle itself is still buyer-controlled in this live version.
+              </p>
+            </article>
+            <article className="panel faq-item">
+              <h3>What network and token does ArcEscrow use?</h3>
+              <p>
+                This app is configured for Arc Testnet and settles with USDC. Users should connect
+                an EVM wallet, switch to Arc Testnet, and make sure they hold enough test USDC to
+                create and fund escrows.
+              </p>
+            </article>
+          </div>
+        </section>
+
         <footer className="app-footer">
           <p>Developed by Vickman</p>
           <a

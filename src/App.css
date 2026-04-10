@@ -348,6 +348,33 @@
   min-height: 100%;
 }
 
+.faq-section {
+  margin-top: 1.5rem;
+}
+
+.faq-section__intro {
+  margin-bottom: 1rem;
+  padding: 0 0.2rem;
+}
+
+.faq-section__intro h2 {
+  margin-top: 0.3rem;
+}
+
+.faq-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.faq-item h3 {
+  margin: 0 0 0.7rem;
+}
+
+.faq-item p {
+  color: var(--text-soft);
+}
+
 .app-footer {
   margin-top: 1.25rem;
   padding: 0 0.2rem 1rem;
@@ -411,6 +438,10 @@
   .toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .faq-grid {
+    grid-template-columns: 1fr;
   }
 
   .app-footer {
