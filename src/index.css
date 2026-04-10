@@ -1,0 +1,121 @@
+:root {
+  color-scheme: light;
+  --bg: #eef3f1;
+  --surface: #ffffff;
+  --border: #d7e0db;
+  --border-strong: #76a28f;
+  --text: #28433a;
+  --text-strong: #163127;
+  --text-soft: #567167;
+  --muted: rgba(245, 247, 248, 0.72);
+  --accent: #1f8f5f;
+  --accent-strong: #16714b;
+  --shadow: 0 20px 48px rgba(34, 59, 48, 0.08);
+  font-family: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  background-image:
+    radial-gradient(circle at top left, rgba(101, 145, 123, 0.08), transparent 28%),
+    radial-gradient(circle at top right, rgba(32, 77, 61, 0.06), transparent 24%);
+}
+
+body,
+button,
+input {
+  font: 16px/1.5 Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2.4rem, 4vw, 4.6rem);
+  line-height: 1.02;
+}
+
+h2 {
+  font-size: 1.75rem;
+  line-height: 1.1;
+  color: var(--text-strong);
+}
+
+h3 {
+  font-size: 1.2rem;
+  line-height: 1.2;
+  color: var(--text-strong);
+}
+
+button,
+input {
+  border-radius: 8px;
+}
+
+button {
+  border: 0;
+  background: var(--accent);
+  color: #f5f7f8;
+  font-weight: 700;
+  padding: 0.85rem 1rem;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+button:hover:enabled {
+  background: var(--accent-strong);
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+input {
+  width: 100%;
+  border: 1px solid var(--border);
+  padding: 0.85rem 0.95rem;
+  color: var(--text-strong);
+  background: #fbfcfb;
+}
+
+input:focus,
+button:focus {
+  outline: 2px solid rgba(31, 143, 95, 0.22);
+  outline-offset: 2px;
+}
+
+a {
+  color: inherit;
+}
