@@ -1076,6 +1076,24 @@ function App() {
             )}
           </section>
         </div>
+
+        <footer className="app-footer">
+          <p>Developed by Vickman</p>
+          <a
+            className="social-link"
+            href="https://x.com/stratton001"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Vickman on X"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M18.901 2H21.98l-6.726 7.687L23.167 22h-6.194l-4.85-7.491L5.568 22H2.487l7.194-8.223L.833 2h6.351l4.384 6.919L18.901 2Zm-1.082 18.136h1.706L6.257 3.768H4.426L17.819 20.136Z"
+                fill="currentColor"
+              />
+            </svg>
+          </a>
+        </footer>
       </section>
     </main>
   )
