@@ -43,6 +43,13 @@ const ERC20_ABI = [
 ]
 
 const escrowStates = ['Created', 'Funded', 'Released', 'Refunded']
+const NAV_ITEMS = [
+  { id: 'home', label: 'Home' },
+  { id: 'seller', label: 'Seller' },
+  { id: 'buyer', label: 'Buyer' },
+  { id: 'manage', label: 'Manage' },
+  { id: 'faq', label: 'FAQ' },
+]
 
 const initialCreateForm = {
   seller: '',
@@ -167,6 +174,8 @@ function App() {
   const [error, setError] = useState('')
   const [isBusy, setIsBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [activePage, setActivePage] = useState('home')
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
   const isCorrectNetwork = chainId === ARC_TESTNET.chainId.toString()
   const walletButtonLabel = walletAddress ? shortenAddress(walletAddress) : 'Connect Wallet'
   const networkLabel = isCorrectNetwork
@@ -267,6 +276,11 @@ function App() {
       return
     }
 
+    const hashPage = window.location.hash.replace('#', '')
+    if (NAV_ITEMS.some((item) => item.id === hashPage)) {
+      setActivePage(hashPage)
+    }
+
     const storedAddress = window.localStorage.getItem('arc-escrow-contract-address')
 
     if (storedAddress && !DEFAULT_CONTRACT_ADDRESS) {
@@ -286,9 +300,19 @@ function App() {
         title,
         description,
       })
+      setActivePage('buyer')
       setStatus('Seller listing loaded. Buyer can now create the escrow.')
     }
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    window.location.hash = activePage
+    setIsMenuOpen(false)
+  }, [activePage])
 
   useEffect(() => {
     const loadContracts = async () => {
@@ -532,6 +556,10 @@ function App() {
     window.open(listingLink, '_blank', 'noopener,noreferrer')
   }
 
+  const goToPage = (pageId) => {
+    setActivePage(pageId)
+  }
+
   const handleCreateEscrow = async (event) => {
     event.preventDefault()
 
@@ -573,6 +601,7 @@ function App() {
         setFundForm({ escrowId })
         setReleaseForm({ escrowId })
         setRefundForm({ escrowId })
+        setActivePage('manage')
         setStatus(`Escrow #${escrowId} created successfully.`)
       } else {
         setStatus('Escrow created successfully.')
@@ -655,6 +684,29 @@ function App() {
             <strong>Arc Network escrow</strong>
           </div>
         </div>
+        <button
+          type="button"
+          className="hamburger-button"
+          aria-label="Toggle navigation menu"
+          aria-expanded={isMenuOpen}
+          onClick={() => setIsMenuOpen((current) => !current)}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+        <nav className={`app-nav__links ${isMenuOpen ? 'app-nav__links--open' : ''}`}>
+          {NAV_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`nav-link ${activePage === item.id ? 'nav-link--active' : ''}`}
+              onClick={() => goToPage(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
         <div className="app-nav__meta">
           {!isCorrectNetwork && chainId ? (
             <button type="button" className="button-secondary nav-switch-button" onClick={switchToArcTestnet} disabled={isBusy}>
@@ -678,9 +730,24 @@ function App() {
         />
         <div className="top-band__content">
           <p className="eyebrow">Payments</p>
-          <h1>Escrow flows that feel familiar to dex users, but settle peer-to-peer deals.</h1>
+          <h1>
+            {activePage === 'seller' && 'Create and share a polished payment link for every deal.'}
+            {activePage === 'buyer' && 'Open a listing link, review the order, and create escrow.'}
+            {activePage === 'manage' && 'Approve, fund, release, refund, and inspect live escrows.'}
+            {activePage === 'faq' && 'Everything buyers and sellers need to understand ArcEscrow.'}
+            {activePage === 'home' && 'Escrow flows that feel familiar to dex users, but settle peer-to-peer deals.'}
+          </h1>
           <p className="lede">
-            Seller creates a polished payment link, buyer lands on a prefilled order, and every step from approval to release stays transparent on Arc Network.
+            {activePage === 'seller' &&
+              'Connect a seller wallet, define the item and price, then generate a shareable link that opens directly in the buyer flow.'}
+            {activePage === 'buyer' &&
+              'The buyer sees the seller address and amount prefilled, then creates an onchain escrow before approving and locking funds.'}
+            {activePage === 'manage' &&
+              'Track the contract state, approve USDC, lock funds, and complete or reverse escrow transactions from one workspace.'}
+            {activePage === 'faq' &&
+              'Learn how seller links, buyer funding, escrow IDs, Arc Testnet, and USDC all fit together in the live app.'}
+            {activePage === 'home' &&
+              'Seller creates a polished payment link, buyer lands on a prefilled order, and every step from approval to release stays transparent on Arc Network.'}
           </p>
           <div className="inline-metrics">
             <div>
@@ -704,16 +771,45 @@ function App() {
         </div>
       </section>
 
-      <section className="workspace">
+      <section className={`workspace workspace--${activePage}`}>
         <div className="toolbar">
           <div>
-            <p className="section-label">Overview</p>
-            <h2>Run the seller link flow, then complete the escrow lifecycle below.</h2>
+            <p className="section-label">{activePage === 'home' ? 'Overview' : activePage}</p>
+            <h2>
+              {activePage === 'seller' && 'Seller tools for building and sharing a listing link.'}
+              {activePage === 'buyer' && 'Buyer tools for reviewing the order and creating escrow.'}
+              {activePage === 'manage' && 'Execution and monitoring for live escrows on the contract.'}
+              {activePage === 'faq' && 'Answers for buyers, sellers, and testers using ArcEscrow.'}
+              {activePage === 'home' && 'Choose a workflow below or jump into the next step.'}
+            </h2>
           </div>
         </div>
 
+        <div className="page-grid">
+          <button type="button" className="panel page-card" onClick={() => goToPage('seller')}>
+            <p className="section-label">Seller</p>
+            <h3>Create and share links</h3>
+            <p>Build a buyer-ready payment link with title, description, and price.</p>
+          </button>
+          <button type="button" className="panel page-card" onClick={() => goToPage('buyer')}>
+            <p className="section-label">Buyer</p>
+            <h3>Create escrow</h3>
+            <p>Open a seller link, review the deal, and create the escrow transaction.</p>
+          </button>
+          <button type="button" className="panel page-card" onClick={() => goToPage('manage')}>
+            <p className="section-label">Manage</p>
+            <h3>Run the lifecycle</h3>
+            <p>Approve, fund, release, refund, and inspect escrows already created onchain.</p>
+          </button>
+          <button type="button" className="panel page-card" onClick={() => goToPage('faq')}>
+            <p className="section-label">FAQ</p>
+            <h3>Understand the flow</h3>
+            <p>Read the practical explanation of how ArcEscrow works for both sides.</p>
+          </button>
+        </div>
+
         <div className="grid">
-          <form className="panel panel--wide" onSubmit={handleGenerateListing}>
+          <form className="panel panel--wide page-section page-section--seller" onSubmit={handleGenerateListing}>
             <div className="panel__header">
               <div>
                 <p className="section-label">Seller</p>
@@ -776,7 +872,7 @@ function App() {
             ) : null}
           </form>
 
-          <form className="panel panel--wide" onSubmit={handleCreateEscrow}>
+          <form className="panel panel--wide page-section page-section--buyer" onSubmit={handleCreateEscrow}>
             <div className="panel__header">
               <div>
                 <p className="section-label">Protocol</p>
@@ -825,7 +921,7 @@ function App() {
             </p>
           </form>
 
-          <form className="panel" onSubmit={handleCreateEscrow}>
+          <form className="panel page-section page-section--buyer" onSubmit={handleCreateEscrow}>
             <div className="panel__header">
               <div>
                 <p className="section-label">Buyer</p>
@@ -879,7 +975,7 @@ function App() {
             </button>
           </form>
 
-          <form className="panel" onSubmit={handleApprove}>
+          <form className="panel page-section page-section--manage" onSubmit={handleApprove}>
             <div className="panel__header">
               <div>
                 <p className="section-label">Flow 2</p>
@@ -902,7 +998,7 @@ function App() {
           </form>
 
           <form
-            className="panel"
+            className="panel page-section page-section--manage"
             onSubmit={(event) => {
               event.preventDefault()
               withTransaction(
@@ -932,7 +1028,7 @@ function App() {
           </form>
 
           <form
-            className="panel"
+            className="panel page-section page-section--manage"
             onSubmit={(event) => {
               event.preventDefault()
               withTransaction(
@@ -962,7 +1058,7 @@ function App() {
           </form>
 
           <form
-            className="panel"
+            className="panel page-section page-section--manage"
             onSubmit={(event) => {
               event.preventDefault()
               withTransaction(
@@ -991,7 +1087,7 @@ function App() {
             </button>
           </form>
 
-          <form className="panel" onSubmit={handleLookup}>
+          <form className="panel page-section page-section--manage" onSubmit={handleLookup}>
             <div className="panel__header">
               <div>
                 <p className="section-label">Inspect</p>
@@ -1013,7 +1109,7 @@ function App() {
           </form>
         </div>
 
-        <div className="bottom-grid">
+        <div className="bottom-grid page-section page-section--manage">
           <section className="panel panel--status">
             <div className="panel__header">
               <div>
@@ -1087,7 +1183,7 @@ function App() {
           </section>
         </div>
 
-        <section className="faq-section">
+        <section className="faq-section page-section page-section--faq">
           <div className="faq-section__intro">
             <p className="section-label">FAQ</p>
             <h2>How ArcEscrow works</h2>
