@@ -177,13 +177,16 @@ function App() {
   const [activePage, setActivePage] = useState('home')
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isWalletMenuOpen, setIsWalletMenuOpen] = useState(false)
+  const hasConnectedWallet = Boolean(walletAddress)
   const isCorrectNetwork = chainId === ARC_TESTNET.chainId.toString()
   const walletButtonLabel = walletAddress ? shortenAddress(walletAddress) : 'Connect Wallet'
-  const networkLabel = isCorrectNetwork
-    ? ARC_TESTNET.chainName
-    : chainId
-      ? `Wrong network (${chainId})`
-      : 'Wallet disconnected'
+  const networkLabel = hasConnectedWallet
+    ? isCorrectNetwork
+      ? ARC_TESTNET.chainName
+      : chainId
+        ? `Wrong network (${chainId})`
+        : 'Wallet disconnected'
+    : 'Wallet disconnected'
   const createFormError = getCreateFormError({
     seller: createForm.seller,
     amount: createForm.amount,
@@ -731,7 +734,7 @@ function App() {
           ))}
         </nav>
         <div className="app-nav__meta">
-          {!isCorrectNetwork && chainId ? (
+          {hasConnectedWallet && !isCorrectNetwork && chainId ? (
             <button type="button" className="button-secondary nav-switch-button" onClick={switchToArcTestnet} disabled={isBusy}>
               Switch to Arc
             </button>
