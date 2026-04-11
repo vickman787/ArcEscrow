@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ArcEscrow Demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, "Segoe UI", sans-serif;
+        background: #0f1c17;
+        color: #f4fbf7;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top, rgba(46, 139, 103, 0.28), transparent 36%),
+          linear-gradient(180deg, #10211a 0%, #08110d 100%);
+      }
+
+      .player {
+        width: min(100vw, 1200px);
+        padding: 18px;
+      }
+
+      .frame-wrap {
+        position: relative;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(244, 251, 247, 0.12);
+        background: #12241d;
+      }
+
+      img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .caption {
+        margin-top: 16px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: center;
+      }
+
+      .caption strong {
+        font-size: 1.1rem;
+      }
+
+      .caption span {
+        color: rgba(244, 251, 247, 0.75);
+      }
+
+      .progress {
+        margin-top: 12px;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(244, 251, 247, 0.12);
+        overflow: hidden;
+      }
+
+      .progress > div {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, #7dddb2, #2e8b67);
+        transition: width 1.35s linear;
+      }
+
+      @media (max-width: 760px) {
+        .player {
+          padding: 10px;
+        }
+
+        .caption {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="player">
+      <div class="frame-wrap">
+        <img id="frame" src="/demo-frames/slide-01.png" alt="ArcEscrow demo frame" />
+      </div>
+      <div class="caption">
+        <div>
+          <strong id="title">Trust is the missing layer in p2p payments</strong>
+          <div><span id="body">ArcEscrow adds programmable settlement to buyer-seller deals on Arc.</span></div>
+        </div>
+        <span id="step">Scene 1 / 7</span>
+      </div>
+      <div class="progress"><div id="bar"></div></div>
+    </main>
+
+    <script>
+      const scenes = [
+        {
+          image: "/demo-frames/slide-01.png",
+          title: "Trust is the missing layer in p2p payments",
+          body: "ArcEscrow adds programmable settlement to buyer-seller deals on Arc.",
+        },
+        {
+          image: "/demo-frames/slide-02.png",
+          title: "Seller creates the payment link",
+          body: "Deal details are bundled into a buyer-ready link.",
+        },
+        {
+          image: "/demo-frames/slide-03.png",
+          title: "Buyer opens the link and reviews the deal",
+          body: "The app preloads the seller and amount before escrow creation.",
+        },
+        {
+          image: "/demo-frames/slide-04.png",
+          title: "Buyer approves USDC and funds escrow",
+          body: "The contract receives funds only after allowance is granted.",
+        },
+        {
+          image: "/demo-frames/slide-05.png",
+          title: "Funds stay locked until settlement",
+          body: "Escrow records remain visible and inspectable onchain.",
+        },
+        {
+          image: "/demo-frames/slide-06.png",
+          title: "Release to seller or refund buyer",
+          body: "The escrow lifecycle completes through contract actions.",
+        },
+        {
+          image: "/demo-frames/slide-07.png",
+          title: "Programmable trust for digital payments on Arc",
+          body: "ArcEscrow is built for safer peer-to-peer settlement with USDC.",
+        },
+      ];
+
+      const frame = document.getElementById("frame");
+      const title = document.getElementById("title");
+      const body = document.getElementById("body");
+      const step = document.getElementById("step");
+      const bar = document.getElementById("bar");
+
+      let index = 0;
+      const duration = 1400;
+
+      function renderScene(nextIndex) {
+        const scene = scenes[nextIndex];
+        frame.src = scene.image;
+        title.textContent = scene.title;
+        body.textContent = scene.body;
+        step.textContent = `Scene ${nextIndex + 1} / ${scenes.length}`;
+        bar.style.width = `${((nextIndex + 1) / scenes.length) * 100}%`;
+      }
+
+      renderScene(index);
+      setInterval(() => {
+        index = (index + 1) % scenes.length;
+        renderScene(index);
+      }, duration);
+    </script>
+  </body>
+</html>

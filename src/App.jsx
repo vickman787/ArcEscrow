@@ -696,13 +696,19 @@ function App() {
   return (
     <main className="app-shell">
       <header className="app-nav">
-        <div className="app-nav__brand">
+        <a
+          className="app-nav__brand app-nav__brand-link"
+          href="https://arc-escrow-blue.vercel.app/"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Open ArcEscrow website"
+        >
           <img className="brand-logo" src="/logo-arc-1.svg" alt="ArcEscrow logo" />
           <div>
             <p className="eyebrow">ArcEscrow</p>
             <strong>Arc Network escrow</strong>
           </div>
-        </div>
+        </a>
         <button
           type="button"
           className="hamburger-button"
