@@ -176,6 +176,7 @@ function App() {
   const [copied, setCopied] = useState(false)
   const [activePage, setActivePage] = useState('home')
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isWalletMenuOpen, setIsWalletMenuOpen] = useState(false)
   const isCorrectNetwork = chainId === ARC_TESTNET.chainId.toString()
   const walletButtonLabel = walletAddress ? shortenAddress(walletAddress) : 'Connect Wallet'
   const networkLabel = isCorrectNetwork
@@ -312,7 +313,14 @@ function App() {
 
     window.location.hash = activePage
     setIsMenuOpen(false)
+    setIsWalletMenuOpen(false)
   }, [activePage])
+
+  useEffect(() => {
+    if (!walletAddress) {
+      setIsWalletMenuOpen(false)
+    }
+  }, [walletAddress])
 
   useEffect(() => {
     const loadContracts = async () => {
@@ -449,6 +457,17 @@ function App() {
     } catch (walletError) {
       setError(walletError.shortMessage || walletError.message)
     }
+  }
+
+  const disconnectWallet = () => {
+    setSigner(null)
+    setWalletAddress('')
+    setChainId('')
+    setWalletBalance(null)
+    setAllowance(null)
+    setIsWalletMenuOpen(false)
+    setError('')
+    setStatus('Wallet disconnected from ArcEscrow. Connect again whenever you are ready.')
   }
 
   const switchToArcTestnet = async () => {
@@ -717,9 +736,41 @@ function App() {
             <span>Network</span>
             <strong>{networkLabel}</strong>
           </div>
-          <button type="button" className="wallet-button" onClick={connectWallet} disabled={isBusy}>
-            {walletButtonLabel}
-          </button>
+          <div className="wallet-menu">
+            <button
+              type="button"
+              className="wallet-button"
+              onClick={walletAddress ? () => setIsWalletMenuOpen((current) => !current) : connectWallet}
+              disabled={isBusy}
+              aria-expanded={walletAddress ? isWalletMenuOpen : undefined}
+              aria-haspopup={walletAddress ? 'menu' : undefined}
+            >
+              {walletButtonLabel}
+            </button>
+            {walletAddress && isWalletMenuOpen ? (
+              <div className="wallet-menu__panel" role="menu" aria-label="Wallet actions">
+                <button
+                  type="button"
+                  className="wallet-menu__action"
+                  onClick={() => {
+                    setIsWalletMenuOpen(false)
+                    connectWallet()
+                  }}
+                  role="menuitem"
+                >
+                  Refresh wallet
+                </button>
+                <button
+                  type="button"
+                  className="wallet-menu__action wallet-menu__action--danger"
+                  onClick={disconnectWallet}
+                  role="menuitem"
+                >
+                  Disconnect
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 
