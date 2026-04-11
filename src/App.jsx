@@ -699,8 +699,6 @@ function App() {
         <a
           className="app-nav__brand app-nav__brand-link"
           href="https://arc-escrow-blue.vercel.app/"
-          target="_blank"
-          rel="noreferrer"
           aria-label="Open ArcEscrow website"
         >
           <img className="brand-logo" src="/logo-arc-1.svg" alt="ArcEscrow logo" />
