@@ -1178,6 +1178,10 @@
     grid-row: auto;
   }
 
+  .workspace--home {
+    min-height: calc(100vh - 9rem);
+  }
+
   .top-band--page {
     min-height: 11rem;
   }
@@ -1221,8 +1225,18 @@
     padding-top: 0.35rem;
   }
 
+  .workspace--home .app-footer {
+    margin-top: auto;
+    padding-top: 1rem;
+    padding-bottom: 1.35rem;
+  }
+
   .social-link {
     margin-top: 0.2rem;
+  }
+
+  .workspace--home .social-link {
+    margin-top: 0.45rem;
   }
 
   .panel__header,
@@ -1315,8 +1329,21 @@
     padding-bottom: 1.2rem;
   }
 
+  .workspace--home {
+    min-height: calc(100vh - 8rem);
+  }
+
+  .workspace--home .app-footer {
+    padding-top: 1.15rem;
+    padding-bottom: 1.5rem;
+  }
+
   .social-link {
     margin-top: 0.3rem;
+  }
+
+  .workspace--home .social-link {
+    margin-top: 0.55rem;
   }
 
   .page-card {
