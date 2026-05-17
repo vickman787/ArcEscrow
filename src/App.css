@@ -1216,6 +1216,15 @@
     padding: 1rem;
   }
 
+  .app-footer {
+    margin-top: 1rem;
+    padding-top: 0.35rem;
+  }
+
+  .social-link {
+    margin-top: 0.2rem;
+  }
+
   .panel__header,
   .saved-listing-card__meta,
   .saved-listing-card__actions,
@@ -1298,6 +1307,16 @@
 
   .panel {
     padding: 0.95rem;
+  }
+
+  .app-footer {
+    margin-top: 1.2rem;
+    padding-top: 0.5rem;
+    padding-bottom: 1.2rem;
+  }
+
+  .social-link {
+    margin-top: 0.3rem;
   }
 
   .page-card {
