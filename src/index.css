@@ -2,6 +2,10 @@
   color-scheme: light;
   --bg: #eef3f1;
   --surface: #ffffff;
+  --surface-soft: #f8fbf9;
+  --surface-muted: rgba(255, 255, 255, 0.74);
+  --surface-strong: rgba(255, 255, 255, 0.92);
+  --surface-overlay: rgba(255, 255, 255, 0.98);
   --border: #d7e0db;
   --border-strong: #76a28f;
   --text: #28433a;
@@ -10,6 +14,9 @@
   --muted: rgba(245, 247, 248, 0.72);
   --accent: #1f8f5f;
   --accent-strong: #16714b;
+  --input-bg: #fbfcfb;
+  --hero-button-bg: rgba(255, 255, 255, 0.08);
+  --hero-button-hover: rgba(255, 255, 255, 0.16);
   --shadow: 0 20px 48px rgba(34, 59, 48, 0.08);
   font-family: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-synthesis: none;
@@ -20,21 +27,51 @@
   background: var(--bg);
 }
 
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0c1416;
+  --surface: #121b1f;
+  --surface-soft: #162126;
+  --surface-muted: rgba(19, 29, 34, 0.86);
+  --surface-strong: rgba(20, 31, 35, 0.92);
+  --surface-overlay: rgba(16, 25, 29, 0.98);
+  --border: #26383d;
+  --border-strong: #3f7f68;
+  --text: #d0ddd8;
+  --text-strong: #f1f7f4;
+  --text-soft: #98afa6;
+  --muted: rgba(209, 221, 216, 0.2);
+  --accent: #259764;
+  --accent-strong: #37b079;
+  --input-bg: #0f171b;
+  --hero-button-bg: rgba(255, 255, 255, 0.12);
+  --hero-button-hover: rgba(255, 255, 255, 0.2);
+  --shadow: 0 24px 56px rgba(0, 0, 0, 0.32);
+}
+
 * {
   box-sizing: border-box;
 }
 
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  overflow-x: hidden;
   background-image:
     radial-gradient(circle at top left, rgba(101, 145, 123, 0.08), transparent 28%),
     radial-gradient(circle at top right, rgba(32, 77, 61, 0.06), transparent 24%);
+}
+
+[data-theme='dark'] body {
+  background-image:
+    radial-gradient(circle at top left, rgba(73, 131, 105, 0.18), transparent 24%),
+    radial-gradient(circle at top right, rgba(16, 56, 46, 0.22), transparent 28%);
 }
 
 body,
@@ -51,6 +88,7 @@ img {
 
 #root {
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 h1,
@@ -107,7 +145,7 @@ input {
   border: 1px solid var(--border);
   padding: 0.85rem 0.95rem;
   color: var(--text-strong);
-  background: #fbfcfb;
+  background: var(--input-bg);
 }
 
 input:focus,
