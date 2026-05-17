@@ -148,8 +148,8 @@ input {
   background: var(--input-bg);
 }
 
-input:focus,
-button:focus {
+input:focus-visible,
+button:focus-visible {
   outline: 2px solid rgba(31, 143, 95, 0.22);
   outline-offset: 2px;
 }

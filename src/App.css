@@ -1109,6 +1109,16 @@
     display: flex;
   }
 
+  .nav-link {
+    min-height: 3rem;
+  }
+
+  .nav-link--active {
+    background: rgba(31, 143, 95, 0.14);
+    color: var(--accent-strong);
+    border: 1px solid rgba(31, 143, 95, 0.24);
+  }
+
   .hamburger-button {
     display: inline-flex;
     margin-left: auto;

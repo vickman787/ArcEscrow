@@ -714,6 +714,22 @@ function App() {
 
   useEffect(() => {
     if (typeof window === 'undefined') {
+      return undefined
+    }
+
+    const handleHashChange = () => {
+      const nextPage = getInitialPage()
+      setActivePage((currentPage) => (currentPage === nextPage ? currentPage : nextPage))
+      setIsMenuOpen(false)
+      setIsWalletMenuOpen(false)
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
       return
     }
 
@@ -1236,7 +1252,11 @@ function App() {
     setStatus('Saved listing removed.')
   }
 
-  const goToPage = (pageId) => {
+  const goToPage = (pageId, event) => {
+    if (event?.currentTarget instanceof HTMLElement) {
+      event.currentTarget.blur()
+    }
+
     setActivePage(pageId)
   }
 
@@ -1403,7 +1423,8 @@ function App() {
               key={item.id}
               type="button"
               className={`nav-link ${activePage === item.id ? 'nav-link--active' : ''}`}
-              onClick={() => goToPage(item.id)}
+              onClick={(event) => goToPage(item.id, event)}
+              aria-current={activePage === item.id ? 'page' : undefined}
             >
               {item.label}
             </button>
