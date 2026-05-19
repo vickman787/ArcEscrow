@@ -1,7 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 import { ethers } from 'ethers'
+import {
+  getCircleSdk,
+  hasCircleAppId,
+  pickArcWallet,
+  pickUsdcBalance,
+  postCircleAction,
+} from './lib/circle'
 
 const ARC_TESTNET = {
   chainId: 5042002,
@@ -62,6 +69,13 @@ const NAV_ITEMS = [
   { id: 'faq', label: 'FAQ' },
 ]
 
+const WALLET_CONNECT_OPTIONS = [
+  { id: 'metamask', label: 'MetaMask', helper: 'Use your injected browser wallet', action: 'browser', icon: 'metamask' },
+  { id: 'coinbase', label: 'Coinbase Wallet', helper: 'Use your injected browser wallet', action: 'browser', icon: 'coinbase' },
+  { id: 'walletconnect', label: 'WalletConnect', helper: 'Coming soon', action: 'coming-soon', icon: 'walletconnect' },
+  { id: 'browser', label: 'Browser Wallet', helper: 'Works with Rabby, MetaMask, and similar wallets', action: 'browser', icon: 'browser' },
+]
+
 const initialCreateForm = {
   seller: '',
   arbiter: '',
@@ -88,6 +102,11 @@ const DASHBOARD_FILTERS = [
   { id: 'active', label: 'Active' },
   { id: 'completed', label: 'Completed' },
 ]
+
+const CIRCLE_SESSION_STORAGE_KEY = 'arc-escrow-circle-session'
+const CIRCLE_WALLETS_STORAGE_KEY = 'arc-escrow-circle-wallets'
+const CIRCLE_BALANCE_STORAGE_KEY = 'arc-escrow-circle-balance'
+const WALLET_MODE_STORAGE_KEY = 'arc-escrow-wallet-mode'
 
 function getInitialTheme() {
   if (typeof window === 'undefined') {
@@ -241,6 +260,42 @@ function getDisplayError(error) {
   return message
 }
 
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+function renderWalletOptionIcon(icon) {
+  switch (icon) {
+    case 'metamask':
+      return (
+        <img src="/metamask-logo.png" alt="" />
+      )
+    case 'coinbase':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" fill="#1652F0" />
+          <path fill="#fff" d="M12 7.2a4.8 4.8 0 1 0 0 9.6 4.8 4.8 0 1 0 0-9.6Zm0 2.2a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 1 1 0-5.2Z" />
+        </svg>
+      )
+    case 'walletconnect':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="2" y="2" width="20" height="20" rx="6" fill="#0F1720" />
+          <path fill="#fff" d="M7.4 9.5a6.5 6.5 0 0 1 9.2 0l0.3 0.3-1.1 1.1-0.3-0.3a5 5 0 0 0-7 0l-0.3 0.3-1.1-1.1zm2 2a3.6 3.6 0 0 1 5.2 0l0.3 0.3-1.1 1.1-0.3-0.3a2 2 0 0 0-3 0l-0.3 0.3-1.1-1.1zm1.9 1.9a1 1 0 0 1 1.4 0l0.8 0.8-1.5 1.5-1.5-1.5z" />
+        </svg>
+      )
+    default:
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.7" />
+          <path d="M3 12h18M12 3a13 13 0 0 1 0 18M12 3a13 13 0 0 0 0 18" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        </svg>
+      )
+  }
+}
+
 function buildTrendPath(points, width, height, padding) {
   if (!points.length) {
     return ''
@@ -391,6 +446,7 @@ function App() {
   const [signer, setSigner] = useState(null)
   const [walletAddress, setWalletAddress] = useState('')
   const [chainId, setChainId] = useState('')
+  const [walletMode, setWalletMode] = useState(null)
   const [contractAddress, setContractAddress] = useState(DEFAULT_CONTRACT_ADDRESS)
   const [listingForm, setListingForm] = useState(initialListingForm)
   const [createForm, setCreateForm] = useState(initialCreateForm)
@@ -423,38 +479,75 @@ function App() {
   const [activePage, setActivePage] = useState(getInitialPage)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isWalletMenuOpen, setIsWalletMenuOpen] = useState(false)
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false)
+  const [hasCopiedWalletAddress, setHasCopiedWalletAddress] = useState(false)
+  const [circleEmail, setCircleEmail] = useState('')
+  const [circleFlowStep, setCircleFlowStep] = useState('idle')
+  const [circleMessage, setCircleMessage] = useState('')
+  const [circleDeviceId, setCircleDeviceId] = useState('')
+  const [circleDeviceToken, setCircleDeviceToken] = useState('')
+  const [circleDeviceEncryptionKey, setCircleDeviceEncryptionKey] = useState('')
+  const [circleOtpToken, setCircleOtpToken] = useState('')
+  const [circleSession, setCircleSession] = useState(null)
+  const [circleWallets, setCircleWallets] = useState([])
+  const [circleWalletBalance, setCircleWalletBalance] = useState(null)
+  const circleSdkRef = useRef(null)
   const [theme, setTheme] = useState(getInitialTheme)
-  const hasConnectedWallet = Boolean(walletAddress)
-  const isCorrectNetwork = chainId === ARC_TESTNET.chainId.toString()
-  const walletButtonLabel = walletAddress ? shortenAddress(walletAddress) : 'Connect Wallet'
+  const isCircleConfigured = hasCircleAppId()
+  const circlePrimaryWallet = pickArcWallet(circleWallets)
+  const publicProvider = useMemo(() => new ethers.JsonRpcProvider(ARC_TESTNET.rpcUrl), [])
+  const activeWalletAddress = walletMode === 'circle' ? circlePrimaryWallet?.address || '' : walletAddress
+  const activeChainId = walletMode === 'circle' ? ARC_TESTNET.chainId.toString() : chainId
+  const hasConnectedWallet = Boolean(activeWalletAddress)
+  const isCircleWalletActive = walletMode === 'circle' && Boolean(circlePrimaryWallet?.id && circleSession?.userToken)
+  const canUseCircleWrites = Boolean(isCircleWalletActive && circlePrimaryWallet?.id && circleSession?.userToken)
+  const isCorrectNetwork = walletMode === 'circle'
+    ? Boolean(circlePrimaryWallet?.address)
+    : chainId === ARC_TESTNET.chainId.toString()
+  const walletButtonLabel = activeWalletAddress ? shortenAddress(activeWalletAddress) : 'Connect Wallet'
   const themeButtonLabel = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
   const networkLabel = hasConnectedWallet
     ? isCorrectNetwork
       ? ARC_TESTNET.chainName
-      : chainId
-        ? `Wrong network (${chainId})`
+      : activeChainId
+        ? `Wrong network (${activeChainId})`
         : 'Wallet disconnected'
     : 'Wallet disconnected'
+  const circleWalletAddress = circlePrimaryWallet?.address || ''
+  const circleWalletBalanceLabel = useMemo(() => {
+    if (!circleWalletBalance) {
+      return ''
+    }
+
+    const symbol = circleWalletBalance.token?.symbol || circleWalletBalance.symbol || 'USDC'
+    const amount =
+      circleWalletBalance.amount ||
+      circleWalletBalance.balance ||
+      circleWalletBalance.tokenBalance ||
+      ''
+
+    return amount ? `${amount} ${symbol}` : symbol
+  }, [circleWalletBalance])
   const createFormError = getCreateFormError({
     seller: createForm.seller,
     arbiter: createForm.arbiter,
     amount: createForm.amount,
-    walletAddress,
+    walletAddress: activeWalletAddress,
     tokenDecimals,
   })
   const dashboardCounts = useMemo(() => ({
     all: myEscrows.length,
-    buyer: myEscrows.filter((escrow) => getEscrowRole(escrow, walletAddress).includes('Buyer')).length,
-    seller: myEscrows.filter((escrow) => getEscrowRole(escrow, walletAddress).includes('Seller')).length,
+    buyer: myEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Buyer')).length,
+    seller: myEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Seller')).length,
     active: myEscrows.filter((escrow) => isActiveEscrowState(escrow.state)).length,
     completed: myEscrows.filter((escrow) => !isActiveEscrowState(escrow.state)).length,
-  }), [myEscrows, walletAddress])
+  }), [activeWalletAddress, myEscrows])
   const filteredMyEscrows = useMemo(() => {
     switch (dashboardFilter) {
       case 'buyer':
-        return myEscrows.filter((escrow) => getEscrowRole(escrow, walletAddress).includes('Buyer'))
+        return myEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Buyer'))
       case 'seller':
-        return myEscrows.filter((escrow) => getEscrowRole(escrow, walletAddress).includes('Seller'))
+        return myEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Seller'))
       case 'active':
         return myEscrows.filter((escrow) => isActiveEscrowState(escrow.state))
       case 'completed':
@@ -462,7 +555,7 @@ function App() {
       default:
         return myEscrows
     }
-  }, [dashboardFilter, myEscrows, walletAddress])
+  }, [activeWalletAddress, dashboardFilter, myEscrows])
   const dashboardSummary = useMemo(() => {
     const totalVolume = myEscrows.reduce((sum, escrow) => sum + escrow.amount, 0n)
 
@@ -559,12 +652,14 @@ function App() {
   }, [tokenDecimals, transactionHistory])
 
   const escrowContract = useMemo(() => {
-    if (!provider || !contractAddress || !ethers.isAddress(contractAddress)) {
+    const readProvider = provider || publicProvider
+
+    if (!readProvider || !contractAddress || !ethers.isAddress(contractAddress)) {
       return null
     }
 
-    return new ethers.Contract(contractAddress, ESCROW_MANAGER_ABI, provider)
-  }, [provider, contractAddress])
+    return new ethers.Contract(contractAddress, ESCROW_MANAGER_ABI, readProvider)
+  }, [provider, publicProvider, contractAddress])
 
   const signerContract = useMemo(() => {
     if (!signer || !contractAddress || !ethers.isAddress(contractAddress)) {
@@ -575,12 +670,14 @@ function App() {
   }, [signer, contractAddress])
 
   const usdcContract = useMemo(() => {
-    if (!provider || !usdcAddress || !ethers.isAddress(usdcAddress)) {
+    const readProvider = provider || publicProvider
+
+    if (!readProvider || !usdcAddress || !ethers.isAddress(usdcAddress)) {
       return null
     }
 
-    return new ethers.Contract(usdcAddress, ERC20_ABI, provider)
-  }, [provider, usdcAddress])
+    return new ethers.Contract(usdcAddress, ERC20_ABI, readProvider)
+  }, [provider, publicProvider, usdcAddress])
 
   const signerUsdcContract = useMemo(() => {
     if (!signer || !usdcAddress || !ethers.isAddress(usdcAddress)) {
@@ -589,6 +686,426 @@ function App() {
 
     return new ethers.Contract(usdcAddress, ERC20_ABI, signer)
   }, [signer, usdcAddress])
+  const canUseBrowserWrites = Boolean(signerContract)
+  const canUseBrowserApprovals = Boolean(signerUsdcContract)
+  const canUseActiveWrites = walletMode === 'circle' ? canUseCircleWrites : canUseBrowserWrites
+  const canUseActiveApprovals = walletMode === 'circle' ? canUseCircleWrites : canUseBrowserApprovals
+
+  const syncCircleSdk = async ({
+    nextDeviceToken = circleDeviceToken,
+    nextDeviceEncryptionKey = circleDeviceEncryptionKey,
+    nextOtpToken = circleOtpToken,
+    nextSession = circleSession,
+  } = {}) => {
+    if (!isCircleConfigured) {
+      return null
+    }
+
+    const sdk = await getCircleSdk({
+      theme,
+      onLoginComplete: async (loginError, result) => {
+        if (loginError || !result) {
+          setCircleFlowStep('otp-sent')
+          const nextMessage = loginError?.message || 'Circle email verification failed.'
+          setError(nextMessage)
+          setCircleMessage(nextMessage)
+          return
+        }
+
+        setError('')
+        setCircleSession({
+          userToken: result.userToken,
+          encryptionKey: result.encryptionKey,
+          refreshToken: result.refreshToken,
+        })
+        setCircleFlowStep('initializing-wallet')
+        setCircleMessage('Email verified. Initializing your Circle wallet on Arc Testnet...')
+
+        try {
+          const initPayload = await postCircleAction('initializeUser', {
+            userToken: result.userToken,
+          })
+          const challengeId =
+            initPayload.challengeId ||
+            initPayload.challenge?.challengeId ||
+            initPayload.userTokenChallenge?.challengeId ||
+            ''
+
+          if (challengeId) {
+            setCircleFlowStep('creating-wallet')
+            setCircleMessage('Circle needs one more secure step to finish creating your wallet.')
+            sdk.setAuthentication({
+              userToken: result.userToken,
+              encryptionKey: result.encryptionKey,
+            })
+
+            await new Promise((resolve, reject) => {
+              sdk.execute(challengeId, async (challengeError, challengeResult) => {
+                if (challengeError) {
+                  reject(new Error(challengeError.message || 'Circle wallet challenge failed.'))
+                  return
+                }
+
+                if (challengeResult?.status === 'FAILED' || challengeResult?.status === 'EXPIRED') {
+                  reject(new Error('Circle wallet challenge did not complete successfully.'))
+                  return
+                }
+
+                resolve(challengeResult)
+              })
+            })
+          }
+
+          const nextPrimaryWallet = await refreshCircleWalletSession({
+            userToken: result.userToken,
+            encryptionKey: result.encryptionKey,
+            refreshToken: result.refreshToken,
+          })
+
+          setCircleFlowStep('wallet-ready')
+          setCircleMessage(
+            nextPrimaryWallet?.address
+              ? `Circle wallet ready at ${shortenAddress(nextPrimaryWallet.address)}.`
+              : 'Circle wallet session is ready.',
+          )
+          setWalletMode(nextPrimaryWallet?.address ? 'circle' : walletMode)
+          setIsWalletModalOpen(false)
+          setIsWalletMenuOpen(false)
+          setStatus(
+            nextPrimaryWallet?.address
+              ? `Circle wallet connected at ${shortenAddress(nextPrimaryWallet.address)}. You can now use ArcEscrow with Circle or log out anytime.`
+              : 'Circle wallet session is ready. Finish syncing the wallet before sending escrow transactions.',
+          )
+        } catch (circleFlowError) {
+          const nextMessage =
+            circleFlowError instanceof Error ? circleFlowError.message : 'Failed to finish Circle wallet setup.'
+          setCircleFlowStep('otp-sent')
+          setError(nextMessage)
+          setCircleMessage(nextMessage)
+        }
+      },
+      onResendOtpEmail: () => {
+        void handleCircleOtpSubmit(undefined, true)
+      },
+    })
+
+    const configs = {
+      appSettings: {
+        appId: import.meta.env.VITE_CIRCLE_APP_ID?.trim() || '',
+      },
+    }
+
+    if (nextDeviceToken && nextDeviceEncryptionKey) {
+      configs.loginConfigs = {
+        deviceToken: nextDeviceToken,
+        deviceEncryptionKey: nextDeviceEncryptionKey,
+        ...(nextOtpToken ? { otpToken: nextOtpToken } : {}),
+      }
+    }
+
+    sdk.updateConfigs(configs)
+
+    if (nextSession?.userToken && nextSession?.encryptionKey) {
+      sdk.setAuthentication({
+        userToken: nextSession.userToken,
+        encryptionKey: nextSession.encryptionKey,
+      })
+    }
+
+    circleSdkRef.current = sdk
+    return sdk
+  }
+
+  const refreshCircleWalletSession = async (nextSession = circleSession) => {
+    if (!nextSession?.userToken) {
+      setCircleWallets([])
+      setCircleWalletBalance(null)
+      return null
+    }
+
+    const walletPayload = await postCircleAction('listWallets', {
+      userToken: nextSession.userToken,
+    })
+    const nextWallets = walletPayload.wallets || []
+    const nextPrimaryWallet = pickArcWallet(nextWallets)
+
+    setCircleWallets(nextWallets)
+
+    if (nextPrimaryWallet?.id) {
+      try {
+        const balancePayload = await postCircleAction('getTokenBalance', {
+          userToken: nextSession.userToken,
+          walletId: nextPrimaryWallet.id,
+        })
+        setCircleWalletBalance(pickUsdcBalance(balancePayload))
+      } catch {
+        setCircleWalletBalance(null)
+      }
+    } else {
+      setCircleWalletBalance(null)
+    }
+
+    return nextPrimaryWallet
+  }
+
+  const resolveCircleTransaction = async ({ challengeId, userToken }) => {
+    const maxAttempts = 60
+    let lastChallenge = null
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const challengePayload = await postCircleAction('getChallenge', {
+        userToken,
+        challengeId,
+      })
+      const challenge =
+        challengePayload.challenge ||
+        challengePayload.userChallenge ||
+        challengePayload
+
+      lastChallenge = challenge
+
+      if (challenge?.status === 'FAILED' || challenge?.status === 'EXPIRED') {
+        throw new Error(challenge?.errorReason || 'Circle challenge did not complete successfully.')
+      }
+
+      const transactionId =
+        challenge?.correlationIds?.find((value) => typeof value === 'string' && value.trim()) ||
+        challenge?.correlationId ||
+        challenge?.transactionId ||
+        ''
+
+      if (transactionId) {
+        const transactionPayload = await postCircleAction('getTransaction', {
+          userToken,
+          transactionId,
+        })
+        const transaction =
+          transactionPayload.transaction ||
+          transactionPayload.userTransaction ||
+          transactionPayload
+
+        const txHash =
+          transaction?.txHash ||
+          transaction?.blockchainTxHash ||
+          transaction?.transactionHash ||
+          transaction?.tx?.txHash ||
+          transaction?.tx?.hash ||
+          transaction?.tx?.transactionHash ||
+          ''
+
+        if (txHash) {
+          const readProvider = provider || publicProvider
+          const receipt = await readProvider.getTransactionReceipt(txHash)
+
+          if (receipt) {
+            return { challenge, transaction, txHash, receipt }
+          }
+        }
+
+        if (transaction?.state === 'FAILED' || transaction?.status === 'FAILED') {
+          throw new Error(
+            transaction?.errorReason ||
+              transaction?.errorMessage ||
+              'Circle transaction failed before reaching the chain.',
+          )
+        }
+      }
+
+      if (challenge?.status === 'COMPLETE' || challenge?.status === 'COMPLETED') {
+        setStatus('Circle approved. Waiting for the Arc receipt to arrive...')
+      }
+
+      await wait(2000)
+    }
+
+    throw new Error(
+      lastChallenge?.errorReason ||
+        'Circle approved the transaction, but the Arc receipt took too long to show up. Refresh the page and check Manage/lookup to confirm whether it landed.',
+    )
+  }
+
+  const executeCircleContract = async ({
+    contractAddress: targetContract,
+    abiFunctionSignature,
+    abiParameters = [],
+    pendingMessage,
+  }) => {
+    if (!circleSession?.userToken || !circlePrimaryWallet?.id) {
+      throw new Error('Log in with Circle Wallet first.')
+    }
+
+    const sdk = await syncCircleSdk({ nextSession: circleSession })
+
+    setStatus(pendingMessage || 'Opening Circle approval...')
+
+    const challengePayload = await postCircleAction('createContractExecutionChallenge', {
+      userToken: circleSession.userToken,
+      walletId: circlePrimaryWallet.id,
+      contractAddress: targetContract,
+      abiFunctionSignature,
+      abiParameters,
+    })
+
+    const challengeId =
+      challengePayload.challengeId ||
+      challengePayload.challenge?.challengeId ||
+      challengePayload.userChallenge?.challengeId ||
+      ''
+
+    if (!challengeId) {
+      throw new Error('Circle did not return a contract execution challenge.')
+    }
+
+    await new Promise((resolve, reject) => {
+      sdk.execute(challengeId, (challengeError, challengeResult) => {
+        if (challengeError) {
+          reject(new Error(challengeError.message || 'Circle contract execution was cancelled.'))
+          return
+        }
+
+        if (challengeResult?.status === 'FAILED' || challengeResult?.status === 'EXPIRED') {
+          reject(new Error('Circle contract execution did not complete successfully.'))
+          return
+        }
+
+        resolve(challengeResult)
+      })
+    })
+
+    return resolveCircleTransaction({
+      challengeId,
+      userToken: circleSession.userToken,
+    })
+  }
+
+  const handleCircleOtpSubmit = async (event, isResend = false) => {
+    event?.preventDefault?.()
+
+    if (!isCircleConfigured) {
+      setError('Add VITE_CIRCLE_APP_ID before trying the Circle email flow.')
+      return
+    }
+
+    if (!circleEmail.trim()) {
+      setError('Enter your email address to continue with Circle Wallet.')
+      return
+    }
+
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailPattern.test(circleEmail.trim())) {
+      setError('Enter a valid email address for Circle Wallet.')
+      return
+    }
+
+    try {
+      setIsBusy(true)
+      setError('')
+      setCircleMessage(isResend ? 'Requesting a fresh OTP from Circle...' : 'Requesting your Circle OTP...')
+
+      const sdk = await syncCircleSdk()
+      const deviceId = circleDeviceId || (await sdk.getDeviceId())
+
+      if (!circleDeviceId) {
+        setCircleDeviceId(deviceId)
+      }
+
+      const otpPayload = await postCircleAction('requestEmailOtp', {
+        email: circleEmail.trim(),
+        deviceId,
+      })
+
+      setCircleDeviceToken(otpPayload.deviceToken || '')
+      setCircleDeviceEncryptionKey(otpPayload.deviceEncryptionKey || '')
+      setCircleOtpToken(otpPayload.otpToken || '')
+      setCircleFlowStep('otp-sent')
+      setCircleMessage(
+        isResend
+          ? 'A fresh OTP is ready. Open the Circle verifier and enter the latest code from Mailtrap.'
+          : 'OTP requested. Open the Circle verifier and enter the code from Mailtrap.',
+      )
+
+      await syncCircleSdk({
+        nextDeviceToken: otpPayload.deviceToken || '',
+        nextDeviceEncryptionKey: otpPayload.deviceEncryptionKey || '',
+        nextOtpToken: otpPayload.otpToken || '',
+      })
+    } catch (circleOtpError) {
+      const nextMessage =
+        circleOtpError instanceof Error ? circleOtpError.message : 'Failed to request Circle OTP.'
+      setCircleFlowStep('idle')
+      setError(nextMessage)
+      setCircleMessage(nextMessage)
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleCircleVerifyOtp = async () => {
+    if (!circleOtpToken || !circleDeviceToken || !circleDeviceEncryptionKey) {
+      setError('Request a Circle OTP code first.')
+      return
+    }
+
+    try {
+      setIsBusy(true)
+      setError('')
+      setCircleFlowStep('verifying')
+      setCircleMessage('Circle verification window opened. Enter the OTP from Mailtrap to continue.')
+
+      const sdk = await syncCircleSdk()
+      sdk.verifyOtp()
+    } catch (circleVerifyError) {
+      const nextMessage =
+        circleVerifyError instanceof Error ? circleVerifyError.message : 'Failed to open Circle OTP verification.'
+      setCircleFlowStep('otp-sent')
+      setError(nextMessage)
+      setCircleMessage(nextMessage)
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    if (walletMode !== 'circle' || !circleSession?.userToken) {
+      return
+    }
+
+    let isCancelled = false
+
+    const restoreCircleWallet = async () => {
+      try {
+        setStatus('Restoring your Circle wallet session...')
+        const nextPrimaryWallet = await refreshCircleWalletSession(circleSession)
+
+        if (isCancelled) {
+          return
+        }
+
+        if (nextPrimaryWallet?.address) {
+          setStatus(`Circle wallet restored at ${shortenAddress(nextPrimaryWallet.address)}.`)
+        }
+      } catch (restoreError) {
+        if (isCancelled) {
+          return
+        }
+
+        console.warn('Failed to restore Circle wallet session:', restoreError)
+        setCircleSession(null)
+        setCircleWallets([])
+        setCircleWalletBalance(null)
+        setWalletMode(null)
+        setError(getDisplayError(restoreError))
+        setCircleMessage('Your Circle session expired. Please sign in again.')
+        setStatus('Circle session expired. Sign in again to continue.')
+      }
+    }
+
+    void restoreCircleWallet()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [walletMode, circleSession?.userToken])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.ethereum) {
@@ -603,9 +1120,11 @@ function App() {
       setWalletAddress(nextAccount)
 
       if (nextAccount) {
+        setWalletMode((current) => current === 'circle' ? current : 'browser')
         const nextSigner = await browserProvider.getSigner()
         setSigner(nextSigner)
       } else {
+        setWalletMode((current) => current === 'browser' ? null : current)
         setSigner(null)
       }
     }
@@ -707,6 +1226,45 @@ function App() {
       return
     }
 
+    const storedWalletMode = window.localStorage.getItem(WALLET_MODE_STORAGE_KEY)
+    const storedCircleSession = window.localStorage.getItem(CIRCLE_SESSION_STORAGE_KEY)
+    const storedCircleWallets = window.localStorage.getItem(CIRCLE_WALLETS_STORAGE_KEY)
+    const storedCircleBalance = window.localStorage.getItem(CIRCLE_BALANCE_STORAGE_KEY)
+
+    if (storedWalletMode === 'circle') {
+      setWalletMode('circle')
+    }
+
+    if (storedCircleSession) {
+      try {
+        setCircleSession(JSON.parse(storedCircleSession))
+      } catch {
+        window.localStorage.removeItem(CIRCLE_SESSION_STORAGE_KEY)
+      }
+    }
+
+    if (storedCircleWallets) {
+      try {
+        setCircleWallets(JSON.parse(storedCircleWallets))
+      } catch {
+        window.localStorage.removeItem(CIRCLE_WALLETS_STORAGE_KEY)
+      }
+    }
+
+    if (storedCircleBalance) {
+      try {
+        setCircleWalletBalance(JSON.parse(storedCircleBalance))
+      } catch {
+        window.localStorage.removeItem(CIRCLE_BALANCE_STORAGE_KEY)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
     window.location.hash = activePage
     setIsMenuOpen(false)
     setIsWalletMenuOpen(false)
@@ -741,16 +1299,79 @@ function App() {
       return
     }
 
+    if (walletMode) {
+      window.localStorage.setItem(WALLET_MODE_STORAGE_KEY, walletMode)
+    } else {
+      window.localStorage.removeItem(WALLET_MODE_STORAGE_KEY)
+    }
+  }, [walletMode])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (circleSession?.userToken && circleSession?.encryptionKey) {
+      window.localStorage.setItem(CIRCLE_SESSION_STORAGE_KEY, JSON.stringify(circleSession))
+    } else {
+      window.localStorage.removeItem(CIRCLE_SESSION_STORAGE_KEY)
+    }
+  }, [circleSession])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (circleWallets.length) {
+      window.localStorage.setItem(CIRCLE_WALLETS_STORAGE_KEY, JSON.stringify(circleWallets))
+    } else {
+      window.localStorage.removeItem(CIRCLE_WALLETS_STORAGE_KEY)
+    }
+  }, [circleWallets])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (circleWalletBalance) {
+      window.localStorage.setItem(CIRCLE_BALANCE_STORAGE_KEY, JSON.stringify(circleWalletBalance))
+    } else {
+      window.localStorage.removeItem(CIRCLE_BALANCE_STORAGE_KEY)
+    }
+  }, [circleWalletBalance])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
     document.documentElement.dataset.theme = theme
     document.documentElement.style.colorScheme = theme
     window.localStorage.setItem('arc-escrow-theme', theme)
   }, [theme])
 
   useEffect(() => {
-    if (!walletAddress) {
+    if (!isWalletModalOpen || typeof window === 'undefined') {
+      return undefined
+    }
+
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setIsWalletModalOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isWalletModalOpen])
+
+  useEffect(() => {
+    if (!activeWalletAddress) {
       setIsWalletMenuOpen(false)
     }
-  }, [walletAddress])
+  }, [activeWalletAddress])
 
   useEffect(() => {
     const loadContracts = async () => {
@@ -800,7 +1421,7 @@ function App() {
 
   useEffect(() => {
     const loadWalletData = async () => {
-      if (!walletAddress || !usdcContract || !contractAddress || !ethers.isAddress(contractAddress)) {
+      if (!activeWalletAddress || !usdcContract || !contractAddress || !ethers.isAddress(contractAddress)) {
         setWalletBalance(null)
         setAllowance(null)
         return
@@ -808,8 +1429,8 @@ function App() {
 
       try {
         const [nextBalance, nextAllowance] = await Promise.all([
-          usdcContract.balanceOf(walletAddress),
-          usdcContract.allowance(walletAddress, contractAddress),
+          usdcContract.balanceOf(activeWalletAddress),
+          usdcContract.allowance(activeWalletAddress, contractAddress),
         ])
 
         setWalletBalance(nextBalance)
@@ -820,11 +1441,11 @@ function App() {
     }
 
     loadWalletData()
-  }, [walletAddress, usdcContract, contractAddress, isBusy])
+  }, [activeWalletAddress, usdcContract, contractAddress, isBusy])
 
   useEffect(() => {
-    if (!walletAddress || !escrowContract || (activePage !== 'manage' && activePage !== 'home')) {
-      if (!walletAddress) {
+    if (!activeWalletAddress || !escrowContract || (activePage !== 'manage' && activePage !== 'home')) {
+      if (!activeWalletAddress) {
         setMyEscrows([])
       }
 
@@ -832,11 +1453,11 @@ function App() {
     }
 
     loadMyEscrows()
-  }, [walletAddress, escrowContract, activePage])
+  }, [activeWalletAddress, escrowContract, activePage])
 
   useEffect(() => {
-    if (!walletAddress || !escrowContract || !provider || (activePage !== 'transactions' && activePage !== 'manage' && activePage !== 'home')) {
-      if (!walletAddress) {
+    if (!activeWalletAddress || !escrowContract || !(provider || publicProvider) || (activePage !== 'manage' && activePage !== 'home')) {
+      if (!activeWalletAddress) {
         setTransactionHistory([])
       }
 
@@ -844,7 +1465,7 @@ function App() {
     }
 
     loadTransactionHistory()
-  }, [walletAddress, escrowContract, provider, activePage])
+  }, [activeWalletAddress, escrowContract, provider, publicProvider, activePage])
 
   const refreshEscrow = async (escrowId) => {
     if (!escrowContract) {
@@ -869,7 +1490,7 @@ function App() {
   }
 
   const loadMyEscrows = async () => {
-    if (!escrowContract || !walletAddress) {
+    if (!escrowContract || !activeWalletAddress) {
       setMyEscrows([])
       return
     }
@@ -888,7 +1509,7 @@ function App() {
       const records = await Promise.all(
         escrowIndexes.map((escrowId) => escrowContract.getEscrow(escrowId)),
       )
-      const normalizedWallet = walletAddress.toLowerCase()
+      const normalizedWallet = activeWalletAddress.toLowerCase()
       const walletEscrows = records
         .map((record) => buildEscrowRecord(record))
         .filter((escrow) =>
@@ -906,16 +1527,18 @@ function App() {
   }
 
   const loadTransactionHistory = async () => {
-    if (!escrowContract || !provider || !walletAddress || !usdcContract) {
+    const readProvider = provider || publicProvider
+
+    if (!escrowContract || !readProvider || !activeWalletAddress || !usdcContract) {
       setTransactionHistory([])
       return
     }
 
     try {
       setIsHistoryLoading(true)
-      const normalizedWallet = walletAddress.toLowerCase()
+      const normalizedWallet = activeWalletAddress.toLowerCase()
       const [approvalEvents, createdEvents, fundedEvents, deliveredEvents, releasedEvents, refundedEvents, disputeOpenedEvents, disputeResolvedEvents] = await Promise.all([
-        usdcContract.queryFilter(usdcContract.filters.Approval(walletAddress, contractAddress)),
+        usdcContract.queryFilter(usdcContract.filters.Approval(activeWalletAddress, contractAddress)),
         escrowContract.queryFilter(escrowContract.filters.EscrowCreated()),
         escrowContract.queryFilter(escrowContract.filters.EscrowFunded()),
         escrowContract.queryFilter(escrowContract.filters.DeliveryMarked()),
@@ -979,7 +1602,7 @@ function App() {
 
       const uniqueBlockNumbers = [...new Set(filteredEvents.map((event) => event.blockNumber))]
       const blocks = await Promise.all(
-        uniqueBlockNumbers.map(async (blockNumber) => [blockNumber, await provider.getBlock(blockNumber)]),
+        uniqueBlockNumbers.map(async (blockNumber) => [blockNumber, await readProvider.getBlock(blockNumber)]),
       )
       const blockMap = new Map(blocks)
 
@@ -1036,37 +1659,110 @@ function App() {
     }
   }
 
-  const withTransaction = async (work, successMessage) => {
+  const refreshLiveData = async (refreshEscrowId) => {
+    const targetEscrowId = refreshEscrowId || lookupId
+
+    if (targetEscrowId) {
+      await refreshEscrow(targetEscrowId)
+    }
+
+    if (escrowContract) {
+      setContractBalance(await escrowContract.contractUsdcBalance())
+    }
+
+    if (activeWalletAddress) {
+      await loadMyEscrows()
+      await loadTransactionHistory()
+    }
+
+    if (canUseCircleWrites) {
+      await refreshCircleWalletSession()
+    }
+  }
+
+  const executeActiveWrite = async ({
+    browserWork,
+    circleContractAddress = contractAddress,
+    circleFunctionSignature,
+    circleParameters = [],
+    pendingMessage,
+    successMessage,
+    refreshEscrowId,
+  }) => {
     try {
       setIsBusy(true)
       setError('')
-      const tx = await work()
-      setStatus(`Transaction sent: ${tx.hash}`)
-      await tx.wait()
+      let txHash = ''
+      let receipt = null
+
+      if (walletMode === 'circle') {
+        const result = await executeCircleContract({
+          contractAddress: circleContractAddress,
+          abiFunctionSignature: circleFunctionSignature,
+          abiParameters: circleParameters,
+          pendingMessage,
+        })
+        txHash = result.txHash || ''
+        receipt = result.receipt || null
+        setStatus(txHash ? `Transaction confirmed: ${txHash}` : successMessage)
+      } else {
+        const tx = await browserWork()
+        txHash = tx.hash
+        setStatus(`Transaction sent: ${tx.hash}`)
+        receipt = await tx.wait()
+      }
+
       setStatus(successMessage)
       try {
-        if (lookupId) {
-          await refreshEscrow(lookupId)
-        }
-
-        if (escrowContract) {
-          setContractBalance(await escrowContract.contractUsdcBalance())
-        }
-
-        if (walletAddress) {
-          await loadMyEscrows()
-          await loadTransactionHistory()
-        }
+        await refreshLiveData(refreshEscrowId)
       } catch (refreshError) {
         setStatus(`${successMessage} Live data refresh is delayed.`)
         setError('')
         console.warn('Post-transaction refresh failed:', refreshError)
       }
+
+      return { txHash, receipt }
     } catch (txError) {
       setError(getDisplayError(txError))
+      return null
     } finally {
       setIsBusy(false)
     }
+  }
+
+  const runEscrowAction = async ({
+    escrowId,
+    browserWork,
+    circleFunctionSignature,
+    circleParameters = [],
+    pendingMessage,
+    successMessage,
+  }) => {
+    const targetEscrowId = `${escrowId || ''}`.trim()
+
+    if (!hasConnectedWallet) {
+      setError('Connect a wallet first.')
+      return null
+    }
+
+    if (!isCorrectNetwork) {
+      setError('Switch your wallet to Arc Testnet before sending transactions.')
+      return null
+    }
+
+    if (!targetEscrowId) {
+      setError('Enter an escrow ID first.')
+      return null
+    }
+
+    return executeActiveWrite({
+      browserWork,
+      circleFunctionSignature,
+      circleParameters,
+      pendingMessage,
+      successMessage,
+      refreshEscrowId: targetEscrowId,
+    })
   }
 
   const connectWallet = async () => {
@@ -1086,6 +1782,8 @@ function App() {
       setSigner(nextSigner)
       setWalletAddress(accounts[0] || '')
       setChainId(network.chainId.toString())
+      setWalletMode('browser')
+      setIsWalletModalOpen(false)
       setStatus(
         network.chainId.toString() === ARC_TESTNET.chainId.toString()
           ? 'Wallet connected to Arc Testnet. You can create or manage escrows now.'
@@ -1097,14 +1795,62 @@ function App() {
   }
 
   const disconnectWallet = () => {
-    setSigner(null)
-    setWalletAddress('')
-    setChainId('')
+    if (walletMode === 'circle') {
+      setCircleSession(null)
+      setCircleWallets([])
+      setCircleWalletBalance(null)
+      setCircleDeviceId('')
+      setCircleDeviceToken('')
+      setCircleDeviceEncryptionKey('')
+      setCircleOtpToken('')
+      setCircleFlowStep('idle')
+      setCircleMessage('Circle wallet disconnected from ArcEscrow. Sign in again whenever you are ready.')
+    } else {
+      setSigner(null)
+      setWalletAddress('')
+      setChainId('')
+    }
+
+    setWalletMode(null)
     setWalletBalance(null)
     setAllowance(null)
     setIsWalletMenuOpen(false)
     setError('')
     setStatus('Wallet disconnected from ArcEscrow. Connect again whenever you are ready.')
+  }
+
+  const openWalletModal = () => {
+    setIsWalletMenuOpen(false)
+    setError('')
+    if (!circleMessage && isCircleConfigured) {
+      setCircleMessage('Use your email to request a Circle OTP, then verify it in the secure Circle window to connect ArcEscrow.')
+    }
+    setIsWalletModalOpen(true)
+  }
+
+  const handleWalletOption = async (action) => {
+    if (action === 'browser') {
+      await connectWallet()
+      return
+    }
+
+    setError('')
+    setStatus('WalletConnect support is coming soon. For now, use an injected browser wallet or the Circle email flow.')
+  }
+
+  const handleCopyWalletAddress = async () => {
+    if (!activeWalletAddress) {
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(activeWalletAddress)
+      setHasCopiedWalletAddress(true)
+      setStatus(`${walletMode === 'circle' ? 'Circle' : 'Wallet'} address copied.`)
+      setTimeout(() => setHasCopiedWalletAddress(false), 1800)
+    } catch (copyError) {
+      setError(copyError instanceof Error ? copyError.message : 'Failed to copy wallet address.')
+    }
   }
 
   const switchToArcTestnet = async () => {
@@ -1154,18 +1900,18 @@ function App() {
   const handleGenerateListing = (event) => {
     event.preventDefault()
 
-    if (!walletAddress) {
+    if (!activeWalletAddress) {
       setError('Connect the seller wallet before generating a buyer link.')
       return
     }
 
-    if (!ethers.isAddress(walletAddress)) {
+    if (!ethers.isAddress(activeWalletAddress)) {
       setError('Connected wallet is not a valid seller address.')
       return
     }
 
     const amountError = getCreateFormError({
-      seller: walletAddress,
+      seller: activeWalletAddress,
       arbiter: listingForm.arbiter,
       amount: listingForm.amount,
       walletAddress: '',
@@ -1178,7 +1924,7 @@ function App() {
     }
 
     const nextCreateForm = {
-      seller: walletAddress,
+      seller: activeWalletAddress,
       arbiter: listingForm.arbiter.trim(),
       amount: listingForm.amount,
       title: listingForm.title.trim(),
@@ -1187,7 +1933,7 @@ function App() {
     const listingId = crypto.randomUUID()
     const nextListing = {
       id: listingId,
-      seller: walletAddress,
+      seller: activeWalletAddress,
       arbiter: listingForm.arbiter.trim(),
       amount: listingForm.amount,
       title: listingForm.title.trim(),
@@ -1263,8 +2009,17 @@ function App() {
   const handleCreateEscrow = async (event) => {
     event.preventDefault()
 
-    if (!signerContract) {
-      setError('Add your deployed contract address and connect a wallet first.')
+    if (!hasConnectedWallet) {
+      setError('Connect a wallet first.')
+      return
+    }
+
+    if (!canUseActiveWrites) {
+      setError(
+        walletMode === 'circle'
+          ? 'Circle wallet is still syncing. Wait a moment, then try creating the escrow again.'
+          : 'Connect a wallet first.',
+      )
       return
     }
 
@@ -1278,14 +2033,22 @@ function App() {
       setError('')
 
       const amount = ethers.parseUnits(createForm.amount, tokenDecimals)
-      const tx = await signerContract.createEscrow(createForm.seller, createForm.arbiter, amount)
-      setStatus(`Creating escrow... ${tx.hash}`)
-      const receipt = await tx.wait()
+      const result = await executeActiveWrite({
+        browserWork: () => signerContract.createEscrow(createForm.seller, createForm.arbiter, amount),
+        circleFunctionSignature: 'createEscrow(address,address,uint256)',
+        circleParameters: [createForm.seller, createForm.arbiter, amount.toString()],
+        pendingMessage: 'Open Circle to approve escrow creation...',
+        successMessage: 'Escrow created successfully.',
+      })
 
-      const log = receipt.logs
+      if (!result?.receipt) {
+        return
+      }
+
+      const log = result.receipt.logs
         .map((entry) => {
           try {
-            return signerContract.interface.parseLog(entry)
+            return new ethers.Interface(ESCROW_MANAGER_ABI).parseLog(entry)
           } catch {
             return null
           }
@@ -1304,12 +2067,7 @@ function App() {
 
       setCreateForm(initialCreateForm)
       try {
-        if (escrowId) {
-          await refreshEscrow(escrowId)
-        }
-        setContractBalance(await escrowContract.contractUsdcBalance())
-        await loadMyEscrows()
-        await loadTransactionHistory()
+        await refreshLiveData(escrowId)
       } catch (refreshError) {
         const successLabel = escrowId
           ? `Escrow #${escrowId} created successfully.`
@@ -1328,7 +2086,7 @@ function App() {
   const handleApprove = async (event) => {
     event.preventDefault()
 
-    if (!signerUsdcContract || !contractAddress) {
+    if (!contractAddress) {
       setError('Connect a wallet and provide your deployed contract address first.')
       return
     }
@@ -1348,14 +2106,25 @@ function App() {
     try {
       setError('')
       setIsBusy(true)
-      const record = await signerContract.getEscrow(targetId)
-      const tx = await signerUsdcContract.approve(contractAddress, record.amount)
-      setStatus(`Approval sent: ${tx.hash}`)
-      await tx.wait()
+      const record = await escrowContract.getEscrow(targetId)
+      const approveResult = await executeActiveWrite({
+        browserWork: () => signerUsdcContract.approve(contractAddress, record.amount),
+        circleContractAddress: usdcAddress,
+        circleFunctionSignature: 'approve(address,uint256)',
+        circleParameters: [contractAddress, record.amount.toString()],
+        pendingMessage: 'Open Circle to approve the USDC allowance...',
+        successMessage: `Allowance updated for escrow #${targetId}.`,
+        refreshEscrowId: targetId,
+      })
+
+      if (!approveResult) {
+        return
+      }
+
       setStatus(`Allowance updated for escrow #${targetId}.`)
       try {
-        await refreshEscrow(targetId)
-        setAllowance(await usdcContract.allowance(walletAddress, contractAddress))
+        await refreshLiveData(targetId)
+        setAllowance(await usdcContract.allowance(activeWalletAddress, contractAddress))
       } catch (refreshError) {
         setStatus(`Allowance updated for escrow #${targetId}. Live data refresh is delayed.`)
         setError('')
@@ -1367,6 +2136,30 @@ function App() {
       setIsBusy(false)
     }
   }
+
+  const buyerStatusMessage = useMemo(() => {
+    if (createFormError) {
+      return ''
+    }
+
+    if (!hasConnectedWallet) {
+      return 'Connect a wallet to create the escrow.'
+    }
+
+    if (!isCorrectNetwork) {
+      return 'Switch to Arc Testnet before creating the escrow.'
+    }
+
+    if (!canUseActiveWrites) {
+      return walletMode === 'circle'
+        ? 'Circle wallet is still syncing. Give it a moment before creating the escrow.'
+        : 'Wallet signer is still loading. Give it a moment and try again.'
+    }
+
+    return walletMode === 'circle'
+      ? 'Circle will open a secure approval window after you tap Create Escrow.'
+      : 'Your connected browser wallet will ask you to confirm the escrow transaction.'
+  }, [canUseActiveWrites, createFormError, hasConnectedWallet, isCorrectNetwork, walletMode])
 
   const handleLookup = async (event) => {
     event.preventDefault()
@@ -1393,7 +2186,7 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell${isWalletModalOpen ? ' app-shell--wallet-modal-open' : ''}`}>
       <header className="app-nav">
         <a
           className="app-nav__brand app-nav__brand-link"
@@ -1478,7 +2271,7 @@ function App() {
             <div className="nav-chip">
               <span>Network</span>
               <strong>{networkLabel}</strong>
-              {activePage === 'home' ? <span>Chain ID {chainId || ARC_TESTNET.chainId}</span> : null}
+              {activePage === 'home' ? <span>Chain ID {activeChainId || ARC_TESTNET.chainId}</span> : null}
             </div>
             <button
               type="button"
@@ -1507,26 +2300,43 @@ function App() {
             <div className="wallet-menu">
               <button
                 type="button"
-                className="wallet-button"
-                onClick={walletAddress ? () => setIsWalletMenuOpen((current) => !current) : connectWallet}
+                className={`wallet-button ${walletMode === 'circle' ? 'wallet-button--circle' : ''}`}
+                onClick={hasConnectedWallet ? () => setIsWalletMenuOpen((current) => !current) : openWalletModal}
                 disabled={isBusy}
-                aria-expanded={walletAddress ? isWalletMenuOpen : undefined}
-                aria-haspopup={walletAddress ? 'menu' : undefined}
+                aria-expanded={hasConnectedWallet ? isWalletMenuOpen : undefined}
+                aria-haspopup={hasConnectedWallet ? 'menu' : undefined}
               >
                 {walletButtonLabel}
               </button>
-              {walletAddress && isWalletMenuOpen ? (
+              {hasConnectedWallet && isWalletMenuOpen ? (
                 <div className="wallet-menu__panel" role="menu" aria-label="Wallet actions">
+                  <div className="wallet-menu__meta">
+                    <span>{walletMode === 'circle' ? 'Circle Wallet' : 'Browser Wallet'}</span>
+                    <strong>{shortenAddress(activeWalletAddress)}</strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="wallet-menu__action"
+                    onClick={handleCopyWalletAddress}
+                    role="menuitem"
+                  >
+                    {hasCopiedWalletAddress ? 'Address copied' : 'Copy address'}
+                  </button>
                   <button
                     type="button"
                     className="wallet-menu__action"
                     onClick={() => {
                       setIsWalletMenuOpen(false)
-                      connectWallet()
+                      if (walletMode === 'circle') {
+                        void refreshCircleWalletSession()
+                        setStatus('Refreshing Circle wallet details...')
+                      } else {
+                        connectWallet()
+                      }
                     }}
                     role="menuitem"
                   >
-                    Refresh wallet
+                    {walletMode === 'circle' ? 'Refresh Circle wallet' : 'Refresh wallet'}
                   </button>
                   <button
                     type="button"
@@ -1648,7 +2458,7 @@ function App() {
                     <div className="dashboard-item__meta">
                       <div>
                         <span>Role</span>
-                        <strong>{getEscrowRole(escrow, walletAddress) || 'Viewer'}</strong>
+                        <strong>{getEscrowRole(escrow, activeWalletAddress) || 'Viewer'}</strong>
                       </div>
                       <div>
                         <span>Buyer</span>
@@ -1692,56 +2502,6 @@ function App() {
               <p className="hint">No escrows match this filter yet. Create one as a buyer or receive one as a seller to populate the dashboard.</p>
             )}
 
-            <div className="panel__header manage-history-header">
-              <div>
-                <p className="section-label">Transactions</p>
-                <h3>Wallet activity</h3>
-              </div>
-              <span className="chip">{transactionHistory.length} events loaded</span>
-            </div>
-            <p className="hint">
-              This history is built from your escrow contract events, filtered down to escrows connected to the wallet you have open.
-            </p>
-            {!hasConnectedWallet ? (
-              <p className="hint">Connect a wallet to load escrow-related activity.</p>
-            ) : isHistoryLoading ? (
-              <p className="hint">Loading transaction history from Arc Testnet...</p>
-            ) : transactionHistory.length ? (
-              <div className="transaction-table-wrap">
-                <table className="transaction-table transaction-table--compact">
-                  <thead>
-                    <tr>
-                      <th>Action</th>
-                      <th>Escrow</th>
-                      <th>Amount</th>
-                      <th>State</th>
-                      <th>When</th>
-                      <th>Tx Hash</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {transactionHistory.map((entry) => (
-                      <tr key={entry.id}>
-                        <td>{entry.action}</td>
-                        <td>#{entry.escrowId}</td>
-                        <td>{formatTokenAmount(entry.amount, tokenDecimals)} {tokenSymbol}</td>
-                        <td>
-                          <span className={`status-pill status-pill--${entry.state.toLowerCase()}`}>{entry.state}</span>
-                        </td>
-                        <td>{formatTimestamp(entry.timestamp)}</td>
-                        <td>
-                          <a href={getExplorerUrl(`/tx/${entry.txHash}`)} target="_blank" rel="noreferrer">
-                            {shortenAddress(entry.txHash)}
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="hint">No contract events are tied to this wallet yet. Create or manage an escrow to start building history.</p>
-            )}
           </section>
 
           <form className="panel panel--wide page-section page-section--seller" onSubmit={handleGenerateListing}>
@@ -1755,7 +2515,7 @@ function App() {
             <p className="hint">Seller connects a wallet, sets a price, and sends the buyer a link with the deal prefilled.</p>
             <label>
               <span>Seller wallet</span>
-              <input value={walletAddress} readOnly placeholder="Connect seller wallet" />
+              <input value={activeWalletAddress} readOnly placeholder="Connect seller wallet" />
             </label>
             <label>
               <span>Title</span>
@@ -1963,9 +2723,12 @@ function App() {
               />
             </label>
             {createFormError ? <p className="inline-error">{createFormError}</p> : null}
-            <button type="submit" disabled={isBusy || !isCorrectNetwork || Boolean(createFormError)}>
-              Create Escrow
+            {!createFormError && buyerStatusMessage ? <p className="inline-note">{buyerStatusMessage}</p> : null}
+            <button type="submit" disabled={isBusy || !isCorrectNetwork || !canUseActiveWrites || Boolean(createFormError)}>
+              {walletMode === 'circle' ? 'Create Escrow with Circle' : 'Create Escrow'}
             </button>
+            {status ? <p className="inline-status">{status}</p> : null}
+            {error ? <p className="inline-error">{error}</p> : null}
           </form>
 
           <form className="panel page-section page-section--manage" onSubmit={handleApprove}>
@@ -1985,7 +2748,7 @@ function App() {
               />
             </label>
             <p className="hint">Reads the escrow amount from-chain and approves that exact amount for funding.</p>
-            <button type="submit" disabled={isBusy || !isCorrectNetwork}>
+            <button type="submit" disabled={isBusy || !isCorrectNetwork || !canUseActiveApprovals}>
               {isCorrectNetwork ? 'Approve USDC' : 'Switch Network First'}
             </button>
           </form>
@@ -1994,10 +2757,14 @@ function App() {
             className="panel page-section page-section--manage"
             onSubmit={(event) => {
               event.preventDefault()
-              withTransaction(
-                () => signerContract.fundEscrow(fundForm.escrowId),
-                `Escrow #${fundForm.escrowId} funded successfully.`,
-              )
+              void runEscrowAction({
+                escrowId: fundForm.escrowId,
+                browserWork: () => signerContract.fundEscrow(fundForm.escrowId),
+                circleFunctionSignature: 'fundEscrow(uint256)',
+                circleParameters: [fundForm.escrowId],
+                pendingMessage: 'Open Circle to approve escrow funding...',
+                successMessage: `Escrow #${fundForm.escrowId} funded successfully.`,
+              })
             }}
           >
             <div className="panel__header">
@@ -2015,7 +2782,7 @@ function App() {
                 placeholder="0"
               />
             </label>
-            <button type="submit" disabled={isBusy || !signerContract || !isCorrectNetwork}>
+            <button type="submit" disabled={isBusy || !canUseActiveWrites || !isCorrectNetwork}>
               Fund Escrow
             </button>
           </form>
@@ -2024,10 +2791,14 @@ function App() {
             className="panel page-section page-section--manage"
             onSubmit={(event) => {
               event.preventDefault()
-              withTransaction(
-                () => signerContract.markDelivered(deliveredForm.escrowId),
-                `Escrow #${deliveredForm.escrowId} marked as delivered.`,
-              )
+              void runEscrowAction({
+                escrowId: deliveredForm.escrowId,
+                browserWork: () => signerContract.markDelivered(deliveredForm.escrowId),
+                circleFunctionSignature: 'markDelivered(uint256)',
+                circleParameters: [deliveredForm.escrowId],
+                pendingMessage: 'Open Circle to confirm delivery status...',
+                successMessage: `Escrow #${deliveredForm.escrowId} marked as delivered.`,
+              })
             }}
           >
             <div className="panel__header">
@@ -2045,7 +2816,7 @@ function App() {
                 placeholder="0"
               />
             </label>
-            <button type="submit" disabled={isBusy || !signerContract || !isCorrectNetwork}>
+            <button type="submit" disabled={isBusy || !canUseActiveWrites || !isCorrectNetwork}>
               Mark Delivered
             </button>
           </form>
@@ -2054,10 +2825,14 @@ function App() {
             className="panel page-section page-section--manage"
             onSubmit={(event) => {
               event.preventDefault()
-              withTransaction(
-                () => signerContract.releaseFunds(releaseForm.escrowId),
-                `Escrow #${releaseForm.escrowId} released to seller.`,
-              )
+              void runEscrowAction({
+                escrowId: releaseForm.escrowId,
+                browserWork: () => signerContract.releaseFunds(releaseForm.escrowId),
+                circleFunctionSignature: 'releaseFunds(uint256)',
+                circleParameters: [releaseForm.escrowId],
+                pendingMessage: 'Open Circle to release funds to the seller...',
+                successMessage: `Escrow #${releaseForm.escrowId} released to seller.`,
+              })
             }}
           >
             <div className="panel__header">
@@ -2075,7 +2850,7 @@ function App() {
                 placeholder="0"
               />
             </label>
-            <button type="submit" disabled={isBusy || !signerContract || !isCorrectNetwork}>
+            <button type="submit" disabled={isBusy || !canUseActiveWrites || !isCorrectNetwork}>
               Release Funds
             </button>
           </form>
@@ -2084,10 +2859,14 @@ function App() {
             className="panel page-section page-section--manage"
             onSubmit={(event) => {
               event.preventDefault()
-              withTransaction(
-                () => signerContract.refundBuyer(refundForm.escrowId),
-                `Escrow #${refundForm.escrowId} refunded to buyer.`,
-              )
+              void runEscrowAction({
+                escrowId: refundForm.escrowId,
+                browserWork: () => signerContract.refundBuyer(refundForm.escrowId),
+                circleFunctionSignature: 'refundBuyer(uint256)',
+                circleParameters: [refundForm.escrowId],
+                pendingMessage: 'Open Circle to refund the buyer...',
+                successMessage: `Escrow #${refundForm.escrowId} refunded to buyer.`,
+              })
             }}
           >
             <div className="panel__header">
@@ -2105,7 +2884,7 @@ function App() {
                 placeholder="0"
               />
             </label>
-            <button type="submit" disabled={isBusy || !signerContract || !isCorrectNetwork}>
+            <button type="submit" disabled={isBusy || !canUseActiveWrites || !isCorrectNetwork}>
               Refund Buyer
             </button>
           </form>
@@ -2114,10 +2893,14 @@ function App() {
             className="panel page-section page-section--manage"
             onSubmit={(event) => {
               event.preventDefault()
-              withTransaction(
-                () => signerContract.openDispute(disputeForm.escrowId),
-                `Dispute opened for escrow #${disputeForm.escrowId}.`,
-              )
+              void runEscrowAction({
+                escrowId: disputeForm.escrowId,
+                browserWork: () => signerContract.openDispute(disputeForm.escrowId),
+                circleFunctionSignature: 'openDispute(uint256)',
+                circleParameters: [disputeForm.escrowId],
+                pendingMessage: 'Open Circle to raise the dispute...',
+                successMessage: `Dispute opened for escrow #${disputeForm.escrowId}.`,
+              })
             }}
           >
             <div className="panel__header">
@@ -2135,7 +2918,7 @@ function App() {
                 placeholder="0"
               />
             </label>
-            <button type="submit" disabled={isBusy || !signerContract || !isCorrectNetwork}>
+            <button type="submit" disabled={isBusy || !canUseActiveWrites || !isCorrectNetwork}>
               Open Dispute
             </button>
           </form>
@@ -2144,10 +2927,14 @@ function App() {
             className="panel page-section page-section--manage"
             onSubmit={(event) => {
               event.preventDefault()
-              withTransaction(
-                () => signerContract.resolveDispute(resolveForm.escrowId, resolveForm.releaseToSeller === 'seller'),
-                `Dispute resolved for escrow #${resolveForm.escrowId}.`,
-              )
+              void runEscrowAction({
+                escrowId: resolveForm.escrowId,
+                browserWork: () => signerContract.resolveDispute(resolveForm.escrowId, resolveForm.releaseToSeller === 'seller'),
+                circleFunctionSignature: 'resolveDispute(uint256,bool)',
+                circleParameters: [resolveForm.escrowId, resolveForm.releaseToSeller === 'seller'],
+                pendingMessage: 'Open Circle to resolve the dispute...',
+                successMessage: `Dispute resolved for escrow #${resolveForm.escrowId}.`,
+              })
             }}
           >
             <div className="panel__header">
@@ -2175,7 +2962,7 @@ function App() {
                 <option value="buyer">Buyer</option>
               </select>
             </label>
-            <button type="submit" disabled={isBusy || !signerContract || !isCorrectNetwork}>
+            <button type="submit" disabled={isBusy || !canUseActiveWrites || !isCorrectNetwork}>
               Resolve Dispute
             </button>
           </form>
@@ -2368,9 +3155,123 @@ function App() {
             </svg>
           </a>
         </footer>
+
+        {isWalletModalOpen ? (
+          <div className="wallet-modal" role="dialog" aria-modal="true" aria-label="Choose a wallet">
+            <button
+              type="button"
+              className="wallet-modal__backdrop"
+              aria-label="Close wallet modal"
+              onClick={() => setIsWalletModalOpen(false)}
+            />
+            <section className="wallet-modal__panel">
+              <button
+                type="button"
+                className="wallet-modal__close"
+                aria-label="Close wallet modal"
+                title="Close"
+                onClick={() => setIsWalletModalOpen(false)}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+
+              <form className="wallet-modal__circle-card" onSubmit={handleCircleOtpSubmit}>
+                <div className="wallet-modal__circle-head">
+                  <div className="wallet-modal__circle-brand">
+                    <span className="wallet-modal__circle-icon" aria-hidden="true">
+                      <img src="/circle-wallet-logo.png" alt="" />
+                    </span>
+                    <div>
+                      <strong>Circle Wallet</strong>
+                      <span>Email + OTP · No seed phrase needed</span>
+                    </div>
+                  </div>
+                  <span className="wallet-modal__recommended">Recommended</span>
+                </div>
+
+                <div className="wallet-modal__circle-entry">
+                  <input
+                    type="email"
+                    value={circleEmail}
+                    onChange={(event) => setCircleEmail(event.target.value)}
+                    placeholder="you@email.com"
+                    disabled={isBusy || circleFlowStep === 'verifying' || circleFlowStep === 'creating-wallet'}
+                  />
+                  <button type="submit" disabled={isBusy || !isCircleConfigured}>
+                    {circleFlowStep === 'otp-sent' || circleFlowStep === 'verifying' ? 'Resend Code' : 'Send Code'}
+                  </button>
+                </div>
+
+                {circleOtpToken && !circleSession ? (
+                  <div className="wallet-modal__circle-actions">
+                    <button
+                      type="button"
+                      className="wallet-modal__circle-verify"
+                      onClick={handleCircleVerifyOtp}
+                      disabled={isBusy}
+                    >
+                      {circleFlowStep === 'verifying' ? 'Waiting for Circle…' : 'Verify Code'}
+                    </button>
+                  </div>
+                ) : null}
+
+                {circlePrimaryWallet ? (
+                  <div className="wallet-modal__circle-wallet">
+                    <div>
+                      <span>Arc wallet</span>
+                      <strong>{shortenAddress(circlePrimaryWallet.address)}</strong>
+                    </div>
+                    <div>
+                      <span>USDC balance</span>
+                      <strong>{circleWalletBalanceLabel || 'Available after Circle sync'}</strong>
+                    </div>
+                  </div>
+                ) : null}
+
+                <p className="wallet-modal__circle-note">
+                  {circleMessage || (
+                    isCircleConfigured
+                      ? 'Use Mailtrap for the OTP email, then verify it in Circle’s secure window.'
+                      : 'Add VITE_CIRCLE_APP_ID and CIRCLE_API_KEY to activate the real Circle flow.'
+                  )}
+                </p>
+              </form>
+
+              <div className="wallet-modal__divider">
+                <span>Or use EVM wallet</span>
+              </div>
+
+              <div className="wallet-modal__options">
+                {WALLET_CONNECT_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className="wallet-option"
+                    onClick={() => handleWalletOption(option.action)}
+                  >
+                    <div className="wallet-option__icon" aria-hidden="true">
+                      {renderWalletOptionIcon(option.icon)}
+                    </div>
+                    <div className="wallet-option__copy">
+                      <strong>{option.label}</strong>
+                      <span>{option.helper}</span>
+                    </div>
+                    <span className="wallet-option__arrow" aria-hidden="true">&rarr;</span>
+                  </button>
+                ))}
+              </div>
+
+              <p className="wallet-modal__footnote">
+                Connects to Arc Testnet · USDC settlement · Circle email login and browser wallets both work in this build
+              </p>
+            </section>
+          </div>
+        ) : null}
       </section>
     </main>
   )
 }
 
 export default App
+
+
