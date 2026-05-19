@@ -3202,7 +3202,7 @@ function App() {
                   </button>
                 </div>
 
-                {circleOtpToken && !circleSession ? (
+                {(circleFlowStep === 'otp-sent' || circleFlowStep === 'verifying') && !circleSession ? (
                   <div className="wallet-modal__circle-actions">
                     <button
                       type="button"
