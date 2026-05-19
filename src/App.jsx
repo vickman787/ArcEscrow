@@ -484,6 +484,8 @@ function App() {
   const [circleEmail, setCircleEmail] = useState('')
   const [circleFlowStep, setCircleFlowStep] = useState('idle')
   const [circleMessage, setCircleMessage] = useState('')
+  const [circleOtpRequested, setCircleOtpRequested] = useState(false)
+  const [circlePendingChallengeId, setCirclePendingChallengeId] = useState('')
   const [circleDeviceId, setCircleDeviceId] = useState('')
   const [circleDeviceToken, setCircleDeviceToken] = useState('')
   const [circleDeviceEncryptionKey, setCircleDeviceEncryptionKey] = useState('')
@@ -718,42 +720,34 @@ function App() {
           encryptionKey: result.encryptionKey,
           refreshToken: result.refreshToken,
         })
+        setCircleOtpRequested(false)
+        setCirclePendingChallengeId('')
         setCircleFlowStep('initializing-wallet')
         setCircleMessage('Email verified. Initializing your Circle wallet on Arc Testnet...')
+
+        let setupChallengeId = ''
 
         try {
           const initPayload = await postCircleAction('initializeUser', {
             userToken: result.userToken,
           })
-          const challengeId =
+          setupChallengeId =
             initPayload.challengeId ||
             initPayload.challenge?.challengeId ||
             initPayload.userTokenChallenge?.challengeId ||
             ''
 
-          if (challengeId) {
-            setCircleFlowStep('creating-wallet')
-            setCircleMessage('Circle needs one more secure step to finish creating your wallet.')
-            sdk.setAuthentication({
-              userToken: result.userToken,
-              encryptionKey: result.encryptionKey,
+          if (setupChallengeId) {
+            setCirclePendingChallengeId(setupChallengeId)
+            await completeCircleWalletSetup({
+              challengeId: setupChallengeId,
+              session: {
+                userToken: result.userToken,
+                encryptionKey: result.encryptionKey,
+                refreshToken: result.refreshToken,
+              },
             })
-
-            await new Promise((resolve, reject) => {
-              sdk.execute(challengeId, async (challengeError, challengeResult) => {
-                if (challengeError) {
-                  reject(new Error(challengeError.message || 'Circle wallet challenge failed.'))
-                  return
-                }
-
-                if (challengeResult?.status === 'FAILED' || challengeResult?.status === 'EXPIRED') {
-                  reject(new Error('Circle wallet challenge did not complete successfully.'))
-                  return
-                }
-
-                resolve(challengeResult)
-              })
-            })
+            return
           }
 
           const nextPrimaryWallet = await refreshCircleWalletSession({
@@ -779,9 +773,16 @@ function App() {
         } catch (circleFlowError) {
           const nextMessage =
             circleFlowError instanceof Error ? circleFlowError.message : 'Failed to finish Circle wallet setup.'
-          setCircleFlowStep('otp-sent')
+          if (setupChallengeId) {
+            setCirclePendingChallengeId(setupChallengeId)
+            setCircleFlowStep('creating-wallet')
+            setCircleMessage(`${nextMessage} Tap Finish Wallet Setup to continue without requesting another OTP.`)
+          } else {
+            setCircleFlowStep('otp-sent')
+            setCircleOtpRequested(true)
+            setCircleMessage(nextMessage)
+          }
           setError(nextMessage)
-          setCircleMessage(nextMessage)
         }
       },
       onResendOtpEmail: () => {
@@ -844,6 +845,61 @@ function App() {
     } else {
       setCircleWalletBalance(null)
     }
+
+    return nextPrimaryWallet
+  }
+
+  const completeCircleWalletSetup = async ({ challengeId, session = circleSession }) => {
+    if (!challengeId) {
+      throw new Error('Circle did not return a wallet setup challenge.')
+    }
+
+    if (!session?.userToken || !session?.encryptionKey) {
+      throw new Error('Verify your email before finishing Circle wallet setup.')
+    }
+
+    const sdk = await syncCircleSdk({ nextSession: session })
+
+    setCircleFlowStep('creating-wallet')
+    setCircleMessage('Circle is opening the secure wallet setup window...')
+    sdk.setAuthentication({
+      userToken: session.userToken,
+      encryptionKey: session.encryptionKey,
+    })
+
+    await new Promise((resolve, reject) => {
+      sdk.execute(challengeId, (challengeError, challengeResult) => {
+        if (challengeError) {
+          reject(new Error(challengeError.message || 'Circle wallet setup was cancelled.'))
+          return
+        }
+
+        if (challengeResult?.status === 'FAILED' || challengeResult?.status === 'EXPIRED') {
+          reject(new Error('Circle wallet setup did not complete successfully.'))
+          return
+        }
+
+        resolve(challengeResult)
+      })
+    })
+
+    setCirclePendingChallengeId('')
+    const nextPrimaryWallet = await refreshCircleWalletSession(session)
+
+    setCircleFlowStep('wallet-ready')
+    setCircleMessage(
+      nextPrimaryWallet?.address
+        ? `Circle wallet ready at ${shortenAddress(nextPrimaryWallet.address)}.`
+        : 'Circle wallet session is ready.',
+    )
+    setWalletMode(nextPrimaryWallet?.address ? 'circle' : walletMode)
+    setIsWalletModalOpen(false)
+    setIsWalletMenuOpen(false)
+    setStatus(
+      nextPrimaryWallet?.address
+        ? `Circle wallet connected at ${shortenAddress(nextPrimaryWallet.address)}. You can now use ArcEscrow with Circle or log out anytime.`
+        : 'Circle wallet session is ready. Finish syncing the wallet before sending escrow transactions.',
+    )
 
     return nextPrimaryWallet
   }
@@ -1017,6 +1073,7 @@ function App() {
       setCircleDeviceToken(otpPayload.deviceToken || '')
       setCircleDeviceEncryptionKey(otpPayload.deviceEncryptionKey || '')
       setCircleOtpToken(otpPayload.otpToken || '')
+      setCircleOtpRequested(true)
       setCircleFlowStep('otp-sent')
       setCircleMessage(
         isResend
@@ -1033,6 +1090,7 @@ function App() {
       const nextMessage =
         circleOtpError instanceof Error ? circleOtpError.message : 'Failed to request Circle OTP.'
       setCircleFlowStep('idle')
+      setCircleOtpRequested(false)
       setError(nextMessage)
       setCircleMessage(nextMessage)
     } finally {
@@ -1058,8 +1116,30 @@ function App() {
       const nextMessage =
         circleVerifyError instanceof Error ? circleVerifyError.message : 'Failed to open Circle OTP verification.'
       setCircleFlowStep('otp-sent')
+      setCircleOtpRequested(true)
       setError(nextMessage)
       setCircleMessage(nextMessage)
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleCircleFinishWalletSetup = async () => {
+    if (!circlePendingChallengeId) {
+      setError('Verify your email first so Circle can prepare wallet setup.')
+      return
+    }
+
+    try {
+      setIsBusy(true)
+      setError('')
+      await completeCircleWalletSetup({ challengeId: circlePendingChallengeId })
+    } catch (finishError) {
+      const nextMessage =
+        finishError instanceof Error ? finishError.message : 'Failed to finish Circle wallet setup.'
+      setCircleFlowStep('creating-wallet')
+      setError(nextMessage)
+      setCircleMessage(`${nextMessage} You can tap Finish Wallet Setup again without requesting another OTP.`)
     } finally {
       setIsBusy(false)
     }
@@ -1799,6 +1879,8 @@ function App() {
       setCircleSession(null)
       setCircleWallets([])
       setCircleWalletBalance(null)
+      setCircleOtpRequested(false)
+      setCirclePendingChallengeId('')
       setCircleDeviceId('')
       setCircleDeviceToken('')
       setCircleDeviceEncryptionKey('')
@@ -1822,6 +1904,10 @@ function App() {
   const openWalletModal = () => {
     setIsWalletMenuOpen(false)
     setError('')
+    if (!circleSession) {
+      setCircleOtpRequested(false)
+      setCirclePendingChallengeId('')
+    }
     if (!circleMessage && isCircleConfigured) {
       setCircleMessage('Use your email to request a Circle OTP, then verify it in the secure Circle window to connect ArcEscrow.')
     }
@@ -2166,6 +2252,10 @@ function App() {
       return false
     }
 
+    if (circleOtpRequested) {
+      return true
+    }
+
     if (circleFlowStep === 'otp-sent' || circleFlowStep === 'verifying') {
       return true
     }
@@ -2181,6 +2271,7 @@ function App() {
     circleDeviceToken,
     circleFlowStep,
     circleMessage,
+    circleOtpRequested,
     circleOtpToken,
     circlePrimaryWallet,
     circleSession,
@@ -3246,6 +3337,19 @@ function App() {
                       disabled={isBusy}
                     >
                       Resend Code
+                    </button>
+                  </div>
+                ) : null}
+
+                {circlePendingChallengeId && circleSession && !circlePrimaryWallet ? (
+                  <div className="wallet-modal__circle-actions">
+                    <button
+                      type="button"
+                      className="wallet-modal__circle-verify"
+                      onClick={handleCircleFinishWalletSetup}
+                      disabled={isBusy}
+                    >
+                      {circleFlowStep === 'creating-wallet' && isBusy ? 'Opening Circle...' : 'Finish Wallet Setup'}
                     </button>
                   </div>
                 ) : null}
