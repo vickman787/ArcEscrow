@@ -1020,8 +1020,8 @@ function App() {
       setCircleFlowStep('otp-sent')
       setCircleMessage(
         isResend
-          ? 'A fresh OTP is ready. Open the Circle verifier and enter the latest code from Mailtrap.'
-          : 'OTP requested. Open the Circle verifier and enter the code from Mailtrap.',
+          ? 'A fresh OTP is ready. Open Circle verification and use only the latest code sent to your email inbox.'
+          : 'OTP requested. Open Circle verification and enter the code sent to your email inbox.',
       )
 
       await syncCircleSdk({
@@ -1050,7 +1050,7 @@ function App() {
       setIsBusy(true)
       setError('')
       setCircleFlowStep('verifying')
-      setCircleMessage('Circle verification window opened. Enter the OTP from Mailtrap to continue.')
+      setCircleMessage('Circle verification window opened. Enter the OTP code from your email inbox to continue.')
 
       const sdk = await syncCircleSdk()
       sdk.verifyOtp()
@@ -3197,8 +3197,8 @@ function App() {
                     placeholder="you@email.com"
                     disabled={isBusy || circleFlowStep === 'verifying' || circleFlowStep === 'creating-wallet'}
                   />
-                  <button type="submit" disabled={isBusy || !isCircleConfigured}>
-                    {circleFlowStep === 'otp-sent' || circleFlowStep === 'verifying' ? 'Resend Code' : 'Send Code'}
+                  <button type="submit" disabled={isBusy || !isCircleConfigured || circleFlowStep === 'otp-sent' || circleFlowStep === 'verifying'}>
+                    Send Code
                   </button>
                 </div>
 
@@ -3211,6 +3211,16 @@ function App() {
                       disabled={isBusy}
                     >
                       {circleFlowStep === 'verifying' ? 'Waiting for Circle…' : 'Verify Code'}
+                    </button>
+                    <button
+                      type="button"
+                      className="button-secondary wallet-modal__circle-resend"
+                      onClick={(event) => {
+                        void handleCircleOtpSubmit(event, true)
+                      }}
+                      disabled={isBusy}
+                    >
+                      Resend Code
                     </button>
                   </div>
                 ) : null}
@@ -3231,7 +3241,7 @@ function App() {
                 <p className="wallet-modal__circle-note">
                   {circleMessage || (
                     isCircleConfigured
-                      ? 'Use Mailtrap for the OTP email, then verify it in Circle’s secure window.'
+                      ? 'Request a code, check your email inbox, then tap Verify Code to enter it in Circle’s secure window.'
                       : 'Add VITE_CIRCLE_APP_ID and CIRCLE_API_KEY to activate the real Circle flow.'
                   )}
                 </p>
