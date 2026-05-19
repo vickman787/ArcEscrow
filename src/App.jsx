@@ -2161,6 +2161,31 @@ function App() {
       : 'Your connected browser wallet will ask you to confirm the escrow transaction.'
   }, [canUseActiveWrites, createFormError, hasConnectedWallet, isCorrectNetwork, walletMode])
 
+  const shouldShowCircleVerification = useMemo(() => {
+    if (circleSession || circlePrimaryWallet) {
+      return false
+    }
+
+    if (circleFlowStep === 'otp-sent' || circleFlowStep === 'verifying') {
+      return true
+    }
+
+    if (circleOtpToken || circleDeviceToken || circleDeviceEncryptionKey) {
+      return true
+    }
+
+    const normalizedMessage = circleMessage.toLowerCase()
+    return normalizedMessage.includes('otp requested') || normalizedMessage.includes('fresh otp')
+  }, [
+    circleDeviceEncryptionKey,
+    circleDeviceToken,
+    circleFlowStep,
+    circleMessage,
+    circleOtpToken,
+    circlePrimaryWallet,
+    circleSession,
+  ])
+
   const handleLookup = async (event) => {
     event.preventDefault()
 
@@ -3202,7 +3227,7 @@ function App() {
                   </button>
                 </div>
 
-                {(circleFlowStep === 'otp-sent' || circleFlowStep === 'verifying') && !circleSession ? (
+                {shouldShowCircleVerification ? (
                   <div className="wallet-modal__circle-actions">
                     <button
                       type="button"
