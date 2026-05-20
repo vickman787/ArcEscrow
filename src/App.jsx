@@ -25,7 +25,7 @@ const ARC_TESTNET = {
 
 const DEFAULT_CONTRACT_ADDRESS =
   import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS?.trim() ||
-  '0xD69854389Cf48A5f396067873AD6dC58c54a96B7'
+  '0x657BD86C15911E0ACF6DD1a5fC840647435580A3'
 
 const APP_BASE_URL = import.meta.env.VITE_APP_URL?.trim() || ''
 
@@ -2798,14 +2798,18 @@ function App() {
                 <strong>{formatTokenAmount(allowance, tokenDecimals)} {tokenSymbol}</strong>
               </div>
             </div>
-            <p className="hint">
-              Add `VITE_ESCROW_CONTRACT_ADDRESS` in your environment if you want this prefilled for every run.
-            </p>
-            <p className="hint">
-              <a href={getExplorerUrl(`/address/${contractAddress}`)} target="_blank" rel="noreferrer">
-                View contract on ArcScan
-              </a>
-            </p>
+            {contractAddress && ethers.isAddress(contractAddress) ? (
+              <p className="hint">
+                Using ArcEscrowManagerV2.{' '}
+                <a href={getExplorerUrl(`/address/${contractAddress}`)} target="_blank" rel="noreferrer">
+                  View contract on ArcScan
+                </a>
+              </p>
+            ) : (
+              <p className="hint">
+                Add a valid escrow manager address before creating or funding escrows.
+              </p>
+            )}
             <p className="hint">
               <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer">
                 Need test funds? Open the Circle faucet
