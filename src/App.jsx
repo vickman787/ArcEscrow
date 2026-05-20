@@ -722,6 +722,9 @@ function App() {
         })
         setCircleOtpRequested(false)
         setCirclePendingChallengeId('')
+        setCircleDeviceToken('')
+        setCircleDeviceEncryptionKey('')
+        setCircleOtpToken('')
         setCircleFlowStep('initializing-wallet')
         setCircleMessage('Email verified. Initializing your Circle wallet on Arc Testnet...')
 
@@ -858,7 +861,12 @@ function App() {
       throw new Error('Verify your email before finishing Circle wallet setup.')
     }
 
-    const sdk = await syncCircleSdk({ nextSession: session })
+    const sdk = await syncCircleSdk({
+      nextDeviceToken: '',
+      nextDeviceEncryptionKey: '',
+      nextOtpToken: '',
+      nextSession: session,
+    })
 
     setCircleFlowStep('creating-wallet')
     setCircleMessage('Circle is opening the secure wallet setup window...')
@@ -1099,7 +1107,7 @@ function App() {
   }
 
   const handleCircleVerifyOtp = async () => {
-    if (!circleOtpToken || !circleDeviceToken || !circleDeviceEncryptionKey) {
+    if (!circleDeviceToken || !circleDeviceEncryptionKey) {
       setError('Request a Circle OTP code first.')
       return
     }
@@ -1904,10 +1912,6 @@ function App() {
   const openWalletModal = () => {
     setIsWalletMenuOpen(false)
     setError('')
-    if (!circleSession) {
-      setCircleOtpRequested(false)
-      setCirclePendingChallengeId('')
-    }
     if (!circleMessage && isCircleConfigured) {
       setCircleMessage('Use your email to request a Circle OTP, then verify it in the secure Circle window to connect ArcEscrow.')
     }
@@ -2276,6 +2280,10 @@ function App() {
     circlePrimaryWallet,
     circleSession,
   ])
+
+  const canOpenCircleVerifier = shouldShowCircleVerification && Boolean(
+    circleDeviceToken && circleDeviceEncryptionKey,
+  )
 
   const handleLookup = async (event) => {
     event.preventDefault()
@@ -3318,13 +3326,14 @@ function App() {
                   </button>
                 </div>
 
-                {shouldShowCircleVerification ? (
+                {!circleSession && !circlePrimaryWallet ? (
                   <div className="wallet-modal__circle-actions">
                     <button
                       type="button"
                       className="wallet-modal__circle-verify"
                       onClick={handleCircleVerifyOtp}
-                      disabled={isBusy}
+                      disabled={isBusy || !canOpenCircleVerifier}
+                      title={canOpenCircleVerifier ? 'Open Circle verification' : 'Request a code first'}
                     >
                       {circleFlowStep === 'verifying' ? 'Waiting for Circle…' : 'Verify Code'}
                     </button>
@@ -3334,7 +3343,7 @@ function App() {
                       onClick={(event) => {
                         void handleCircleOtpSubmit(event, true)
                       }}
-                      disabled={isBusy}
+                      disabled={isBusy || !isCircleConfigured || !circleEmail.trim()}
                     >
                       Resend Code
                     </button>
