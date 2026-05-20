@@ -3326,29 +3326,27 @@ function App() {
                   </button>
                 </div>
 
-                {!circleSession && !circlePrimaryWallet ? (
-                  <div className="wallet-modal__circle-actions">
-                    <button
-                      type="button"
-                      className="wallet-modal__circle-verify"
-                      onClick={handleCircleVerifyOtp}
-                      disabled={isBusy || !canOpenCircleVerifier}
-                      title={canOpenCircleVerifier ? 'Open Circle verification' : 'Request a code first'}
-                    >
-                      {circleFlowStep === 'verifying' ? 'Waiting for Circle…' : 'Verify Code'}
-                    </button>
-                    <button
-                      type="button"
-                      className="button-secondary wallet-modal__circle-resend"
-                      onClick={(event) => {
-                        void handleCircleOtpSubmit(event, true)
-                      }}
-                      disabled={isBusy || !isCircleConfigured || !circleEmail.trim()}
-                    >
-                      Resend Code
-                    </button>
-                  </div>
-                ) : null}
+                <div className="wallet-modal__circle-actions">
+                  <button
+                    type="button"
+                    className="wallet-modal__circle-verify"
+                    onClick={handleCircleVerifyOtp}
+                    disabled={isBusy || Boolean(circlePrimaryWallet) || !canOpenCircleVerifier}
+                    title={canOpenCircleVerifier ? 'Open Circle verification' : 'Request a code first'}
+                  >
+                    {circleFlowStep === 'verifying' ? 'Waiting for Circle...' : 'Verify Code'}
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary wallet-modal__circle-resend"
+                    onClick={(event) => {
+                      void handleCircleOtpSubmit(event, true)
+                    }}
+                    disabled={isBusy || Boolean(circlePrimaryWallet) || !isCircleConfigured || !circleEmail.trim()}
+                  >
+                    Resend Code
+                  </button>
+                </div>
 
                 {circlePendingChallengeId && circleSession && !circlePrimaryWallet ? (
                   <div className="wallet-modal__circle-actions">
