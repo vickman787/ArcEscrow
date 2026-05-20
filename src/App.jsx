@@ -697,6 +697,7 @@ function App() {
     nextDeviceToken = circleDeviceToken,
     nextDeviceEncryptionKey = circleDeviceEncryptionKey,
     nextOtpToken = circleOtpToken,
+    nextEmail = circleEmail,
     nextSession = circleSession,
   } = {}) => {
     if (!isCircleConfigured) {
@@ -799,11 +800,14 @@ function App() {
       },
     }
 
+    const normalizedEmail = nextEmail.trim()
+
     if (nextDeviceToken && nextDeviceEncryptionKey) {
       configs.loginConfigs = {
         deviceToken: nextDeviceToken,
         deviceEncryptionKey: nextDeviceEncryptionKey,
         ...(nextOtpToken ? { otpToken: nextOtpToken } : {}),
+        ...(normalizedEmail ? { email: { email: normalizedEmail } } : {}),
       }
     }
 
@@ -1093,6 +1097,7 @@ function App() {
         nextDeviceToken: otpPayload.deviceToken || '',
         nextDeviceEncryptionKey: otpPayload.deviceEncryptionKey || '',
         nextOtpToken: otpPayload.otpToken || '',
+        nextEmail: circleEmail.trim(),
       })
     } catch (circleOtpError) {
       const nextMessage =
@@ -1104,6 +1109,16 @@ function App() {
     } finally {
       setIsBusy(false)
     }
+  }
+
+  const openCircleOtpVerifier = (sdk) => {
+    const verifyOtp = sdk?.verifyOtp || sdk?.verifyOTP
+
+    if (typeof verifyOtp !== 'function') {
+      throw new Error('Circle OTP verifier is not available. Refresh the page and request a new code.')
+    }
+
+    verifyOtp.call(sdk)
   }
 
   const handleCircleVerifyOtp = async () => {
@@ -1118,8 +1133,18 @@ function App() {
       setCircleFlowStep('verifying')
       setCircleMessage('Circle verification window opened. Enter the OTP code from your email inbox to continue.')
 
-      const sdk = await syncCircleSdk()
-      sdk.verifyOtp()
+      if (circleSdkRef.current) {
+        openCircleOtpVerifier(circleSdkRef.current)
+        return
+      }
+
+      const sdk = await syncCircleSdk({
+        nextDeviceToken: circleDeviceToken,
+        nextDeviceEncryptionKey: circleDeviceEncryptionKey,
+        nextOtpToken: circleOtpToken,
+        nextEmail: circleEmail.trim(),
+      })
+      openCircleOtpVerifier(sdk)
     } catch (circleVerifyError) {
       const nextMessage =
         circleVerifyError instanceof Error ? circleVerifyError.message : 'Failed to open Circle OTP verification.'
