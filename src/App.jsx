@@ -2277,10 +2277,6 @@ function App() {
   }, [canUseActiveWrites, createFormError, hasConnectedWallet, isCorrectNetwork, walletMode])
 
   const shouldShowCircleVerification = useMemo(() => {
-    if (circleSession || circlePrimaryWallet) {
-      return false
-    }
-
     if (circleOtpRequested) {
       return true
     }
@@ -2291,6 +2287,10 @@ function App() {
 
     if (circleOtpToken || circleDeviceToken || circleDeviceEncryptionKey) {
       return true
+    }
+
+    if (circleSession || circlePrimaryWallet) {
+      return false
     }
 
     const normalizedMessage = circleMessage.toLowerCase()
@@ -3360,7 +3360,7 @@ function App() {
                     type="button"
                     className="wallet-modal__circle-verify"
                     onClick={handleCircleVerifyOtp}
-                    disabled={isBusy || Boolean(circlePrimaryWallet) || !canOpenCircleVerifier}
+                    disabled={isBusy || !canOpenCircleVerifier}
                     title={canOpenCircleVerifier ? 'Open Circle verification' : 'Request a code first'}
                   >
                     {circleFlowStep === 'verifying' ? 'Waiting for Circle...' : 'Verify Code'}
@@ -3371,7 +3371,7 @@ function App() {
                     onClick={(event) => {
                       void handleCircleOtpSubmit(event, true)
                     }}
-                    disabled={isBusy || Boolean(circlePrimaryWallet) || !isCircleConfigured || !circleEmail.trim()}
+                    disabled={isBusy || !isCircleConfigured || !circleEmail.trim()}
                   >
                     Resend Code
                   </button>
