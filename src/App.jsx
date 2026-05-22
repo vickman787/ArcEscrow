@@ -454,7 +454,6 @@ function App() {
   const [savedListings, setSavedListings] = useState([])
   const [approveForm, setApproveForm] = useState(initialActionForm)
   const [fundForm, setFundForm] = useState(initialActionForm)
-  const [deliveredForm, setDeliveredForm] = useState(initialActionForm)
   const [releaseForm, setReleaseForm] = useState(initialActionForm)
   const [refundForm, setRefundForm] = useState(initialActionForm)
   const [disputeForm, setDisputeForm] = useState(initialActionForm)
@@ -1595,7 +1594,6 @@ function App() {
     setLookupId(escrowId)
     setApproveForm({ escrowId })
     setFundForm({ escrowId })
-    setDeliveredForm({ escrowId })
     setReleaseForm({ escrowId })
     setRefundForm({ escrowId })
     setDisputeForm({ escrowId })
@@ -2937,40 +2935,6 @@ function App() {
             </label>
             <button type="submit" disabled={isBusy || !canUseActiveWrites || !isCorrectNetwork}>
               Fund Escrow
-            </button>
-          </form>
-
-          <form
-            className="panel page-section page-section--manage"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void runEscrowAction({
-                escrowId: deliveredForm.escrowId,
-                browserWork: () => signerContract.markDelivered(deliveredForm.escrowId),
-                circleFunctionSignature: 'markDelivered(uint256)',
-                circleParameters: [deliveredForm.escrowId],
-                pendingMessage: 'Open Circle to confirm delivery status...',
-                successMessage: `Escrow #${deliveredForm.escrowId} marked as delivered.`,
-              })
-            }}
-          >
-            <div className="panel__header">
-              <div>
-                <p className="section-label">Flow 4</p>
-                <h3>Mark delivered</h3>
-              </div>
-            </div>
-            <label>
-              <span>Escrow ID</span>
-              <input
-                value={deliveredForm.escrowId}
-                onChange={(event) => setDeliveredForm({ escrowId: event.target.value })}
-                inputMode="numeric"
-                placeholder="0"
-              />
-            </label>
-            <button type="submit" disabled={isBusy || !canUseActiveWrites || !isCorrectNetwork}>
-              Mark Delivered
             </button>
           </form>
 
