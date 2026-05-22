@@ -49,8 +49,9 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.35rem;
-  margin-top: 1.5rem;
+  gap: 0.7rem;
+  margin-top: 2.25rem;
+  padding: 0.35rem 0;
 }
 
 .brand-logo {
@@ -84,8 +85,8 @@
 
 .nav-link {
   width: 100%;
-  min-height: 2.85rem;
-  padding: 0 0.9rem;
+  min-height: 3.55rem;
+  padding: 0 1rem;
   border-radius: 8px;
   background: transparent;
   color: var(--text-soft);
@@ -667,6 +668,35 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.hero-stats {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.hero-stats div {
+  min-width: 13rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(244, 251, 247, 0.2);
+  border-radius: 8px;
+  background: rgba(12, 20, 25, 0.58);
+  backdrop-filter: blur(14px);
+  display: grid;
+  gap: 0.18rem;
+}
+
+.hero-stats span {
+  color: rgba(245, 247, 248, 0.74);
+  font-size: 0.82rem;
+}
+
+.hero-stats strong {
+  color: #f5f7f8;
+  font-size: 1.65rem;
+  line-height: 1.1;
 }
 
 .hero-links a,
@@ -1309,6 +1339,15 @@
   text-decoration: none;
   display: inline-flex;
   align-items: center;
+}
+
+.dashboard-item__delete {
+  color: #b33a30;
+}
+
+.dashboard-item__delete:hover:enabled {
+  background: rgba(195, 53, 43, 0.08);
+  border-color: rgba(195, 53, 43, 0.28);
 }
 
 .transaction-table-wrap {

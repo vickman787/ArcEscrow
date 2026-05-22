@@ -107,6 +107,10 @@ const CIRCLE_SESSION_STORAGE_KEY = 'arc-escrow-circle-session'
 const CIRCLE_WALLETS_STORAGE_KEY = 'arc-escrow-circle-wallets'
 const CIRCLE_BALANCE_STORAGE_KEY = 'arc-escrow-circle-balance'
 const WALLET_MODE_STORAGE_KEY = 'arc-escrow-wallet-mode'
+const DISMISSED_ESCROWS_STORAGE_PREFIX = 'arc-escrow-dismissed-escrows'
+const LOG_QUERY_BLOCK_SPAN = 9999
+const FALLBACK_VOLUME_LOOKBACK_BLOCKS = 5_000_000
+const DEFAULT_VOLUME_START_BLOCK = 42_550_000
 
 function getInitialTheme() {
   if (typeof window === 'undefined') {
@@ -145,6 +149,47 @@ function formatTokenAmount(value, decimals = 6) {
   } catch {
     return '--'
   }
+}
+
+function getEscrowVolumeStartBlock(contractAddress, latestBlock) {
+  if (contractAddress?.toLowerCase() === DEFAULT_CONTRACT_ADDRESS.toLowerCase()) {
+    return DEFAULT_VOLUME_START_BLOCK
+  }
+
+  return Math.max(0, latestBlock - FALLBACK_VOLUME_LOOKBACK_BLOCKS)
+}
+
+function getDismissedEscrowsStorageKey(contractAddress, walletAddress) {
+  if (!contractAddress || !walletAddress) {
+    return ''
+  }
+
+  return `${DISMISSED_ESCROWS_STORAGE_PREFIX}:${contractAddress.toLowerCase()}:${walletAddress.toLowerCase()}`
+}
+
+async function queryEventsInChunks(contract, filter, fromBlock, toBlock) {
+  const events = []
+
+  for (let from = fromBlock; from <= toBlock; from += LOG_QUERY_BLOCK_SPAN + 1) {
+    const to = Math.min(from + LOG_QUERY_BLOCK_SPAN, toBlock)
+    events.push(...await contract.queryFilter(filter, from, to))
+  }
+
+  return events
+}
+
+function sumEventAmounts(events) {
+  return events.reduce((total, event) => total + BigInt(event.args.amount.toString()), 0n)
+}
+
+function sumSellerDisputeReleaseAmounts(events) {
+  return events.reduce((total, event) => {
+    if (!event.args.releasedToSeller) {
+      return total
+    }
+
+    return total + BigInt(event.args.amount.toString())
+  }, 0n)
 }
 
 function buildEscrowRecord(record) {
@@ -465,8 +510,12 @@ function App() {
   const [tokenSymbol, setTokenSymbol] = useState('USDC')
   const [tokenDecimals, setTokenDecimals] = useState(6)
   const [walletBalance, setWalletBalance] = useState(null)
+  const [escrowVolume, setEscrowVolume] = useState(null)
+  const [escrowVolumeBlock, setEscrowVolumeBlock] = useState(null)
+  const [isEscrowVolumeLoading, setIsEscrowVolumeLoading] = useState(false)
   const [allowance, setAllowance] = useState(null)
   const [myEscrows, setMyEscrows] = useState([])
+  const [dismissedEscrowIds, setDismissedEscrowIds] = useState([])
   const [dashboardFilter, setDashboardFilter] = useState('all')
   const [isDashboardLoading, setIsDashboardLoading] = useState(false)
   const [transactionHistory, setTransactionHistory] = useState([])
@@ -493,6 +542,7 @@ function App() {
   const [circleWallets, setCircleWallets] = useState([])
   const [circleWalletBalance, setCircleWalletBalance] = useState(null)
   const circleSdkRef = useRef(null)
+  const circleLoginFlowRef = useRef(false)
   const [theme, setTheme] = useState(getInitialTheme)
   const isCircleConfigured = hasCircleAppId()
   const circlePrimaryWallet = pickArcWallet(circleWallets)
@@ -536,35 +586,43 @@ function App() {
     walletAddress: activeWalletAddress,
     tokenDecimals,
   })
+  const visibleMyEscrows = useMemo(() => {
+    if (!dismissedEscrowIds.length) {
+      return myEscrows
+    }
+
+    const dismissedIds = new Set(dismissedEscrowIds)
+    return myEscrows.filter((escrow) => !dismissedIds.has(escrow.id))
+  }, [dismissedEscrowIds, myEscrows])
   const dashboardCounts = useMemo(() => ({
-    all: myEscrows.length,
-    buyer: myEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Buyer')).length,
-    seller: myEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Seller')).length,
-    active: myEscrows.filter((escrow) => isActiveEscrowState(escrow.state)).length,
-    completed: myEscrows.filter((escrow) => !isActiveEscrowState(escrow.state)).length,
-  }), [activeWalletAddress, myEscrows])
+    all: visibleMyEscrows.length,
+    buyer: visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Buyer')).length,
+    seller: visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Seller')).length,
+    active: visibleMyEscrows.filter((escrow) => isActiveEscrowState(escrow.state)).length,
+    completed: visibleMyEscrows.filter((escrow) => !isActiveEscrowState(escrow.state)).length,
+  }), [activeWalletAddress, visibleMyEscrows])
   const filteredMyEscrows = useMemo(() => {
     switch (dashboardFilter) {
       case 'buyer':
-        return myEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Buyer'))
+        return visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Buyer'))
       case 'seller':
-        return myEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Seller'))
+        return visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Seller'))
       case 'active':
-        return myEscrows.filter((escrow) => isActiveEscrowState(escrow.state))
+        return visibleMyEscrows.filter((escrow) => isActiveEscrowState(escrow.state))
       case 'completed':
-        return myEscrows.filter((escrow) => !isActiveEscrowState(escrow.state))
+        return visibleMyEscrows.filter((escrow) => !isActiveEscrowState(escrow.state))
       default:
-        return myEscrows
+        return visibleMyEscrows
     }
-  }, [activeWalletAddress, dashboardFilter, myEscrows])
+  }, [activeWalletAddress, dashboardFilter, visibleMyEscrows])
   const dashboardSummary = useMemo(() => {
-    const totalVolume = myEscrows.reduce((sum, escrow) => sum + escrow.amount, 0n)
+    const totalVolume = visibleMyEscrows.reduce((sum, escrow) => sum + escrow.amount, 0n)
 
     return [
       {
         id: 'total',
         label: 'Total Escrows',
-        value: myEscrows.length.toString(),
+        value: visibleMyEscrows.length.toString(),
         helper: 'All buyer and seller escrows tied to this wallet.',
       },
       {
@@ -586,8 +644,8 @@ function App() {
         helper: 'Combined escrow amount across your loaded records.',
       },
     ]
-  }, [dashboardCounts.active, dashboardCounts.completed, myEscrows, tokenDecimals, tokenSymbol])
-  const recentEscrows = useMemo(() => myEscrows.slice(0, 5), [myEscrows])
+  }, [dashboardCounts.active, dashboardCounts.completed, tokenDecimals, tokenSymbol, visibleMyEscrows])
+  const recentEscrows = useMemo(() => visibleMyEscrows.slice(0, 5), [visibleMyEscrows])
   const walletTrend = useMemo(() => {
     const formatter = new Intl.DateTimeFormat(undefined, { weekday: 'short' })
     const today = new Date()
@@ -706,6 +764,10 @@ function App() {
     const sdk = await getCircleSdk({
       theme,
       onLoginComplete: async (loginError, result) => {
+        if (circleLoginFlowRef.current) {
+          return
+        }
+
         if (loginError || !result) {
           setCircleFlowStep('otp-sent')
           const nextMessage = loginError?.message || 'Circle email verification failed.'
@@ -714,23 +776,36 @@ function App() {
           return
         }
 
-        setError('')
-        setCircleSession({
+        circleLoginFlowRef.current = true
+        const nextSession = {
           userToken: result.userToken,
           encryptionKey: result.encryptionKey,
           refreshToken: result.refreshToken,
-        })
+        }
+
+        setError('')
+        setCircleSession(nextSession)
         setCircleOtpRequested(false)
         setCirclePendingChallengeId('')
         setCircleDeviceToken('')
         setCircleDeviceEncryptionKey('')
         setCircleOtpToken('')
         setCircleFlowStep('initializing-wallet')
-        setCircleMessage('Email verified. Initializing your Circle wallet on Arc Testnet...')
+        setCircleMessage('Email verified. Checking for your existing Circle wallet on Arc Testnet...')
 
         let setupChallengeId = ''
 
         try {
+          const existingWallet = await activateCircleWalletSession(nextSession, {
+            statusPrefix: 'Circle wallet reconnected',
+          })
+
+          if (existingWallet?.address) {
+            return
+          }
+
+          setCircleMessage('No existing Arc wallet was found. Preparing Circle wallet setup...')
+
           const initPayload = await postCircleAction('initializeUser', {
             userToken: result.userToken,
           })
@@ -744,35 +819,18 @@ function App() {
             setCirclePendingChallengeId(setupChallengeId)
             await completeCircleWalletSetup({
               challengeId: setupChallengeId,
-              session: {
-                userToken: result.userToken,
-                encryptionKey: result.encryptionKey,
-                refreshToken: result.refreshToken,
-              },
+              session: nextSession,
             })
             return
           }
 
-          const nextPrimaryWallet = await refreshCircleWalletSession({
-            userToken: result.userToken,
-            encryptionKey: result.encryptionKey,
-            refreshToken: result.refreshToken,
-          })
+          const initializedWallet = await activateCircleWalletSession(nextSession)
 
-          setCircleFlowStep('wallet-ready')
-          setCircleMessage(
-            nextPrimaryWallet?.address
-              ? `Circle wallet ready at ${shortenAddress(nextPrimaryWallet.address)}.`
-              : 'Circle wallet session is ready.',
-          )
-          setWalletMode(nextPrimaryWallet?.address ? 'circle' : walletMode)
-          setIsWalletModalOpen(false)
-          setIsWalletMenuOpen(false)
-          setStatus(
-            nextPrimaryWallet?.address
-              ? `Circle wallet connected at ${shortenAddress(nextPrimaryWallet.address)}. You can now use ArcEscrow with Circle or log out anytime.`
-              : 'Circle wallet session is ready. Finish syncing the wallet before sending escrow transactions.',
-          )
+          if (!initializedWallet?.address) {
+            setCircleFlowStep('wallet-ready')
+            setCircleMessage('Circle user is initialized, but no Arc Testnet wallet was returned. Try refreshing Circle wallet details before requesting another code.')
+            setStatus('Circle session is ready, but no Arc Testnet wallet was found.')
+          }
         } catch (circleFlowError) {
           const nextMessage =
             circleFlowError instanceof Error ? circleFlowError.message : 'Failed to finish Circle wallet setup.'
@@ -786,6 +844,8 @@ function App() {
             setCircleMessage(nextMessage)
           }
           setError(nextMessage)
+        } finally {
+          circleLoginFlowRef.current = false
         }
       },
       onResendOtpEmail: () => {
@@ -855,6 +915,29 @@ function App() {
     return nextPrimaryWallet
   }
 
+  const activateCircleWalletSession = async (
+    nextSession = circleSession,
+    { statusPrefix = 'Circle wallet connected' } = {},
+  ) => {
+    const nextPrimaryWallet = await refreshCircleWalletSession(nextSession)
+
+    if (!nextPrimaryWallet?.address) {
+      return null
+    }
+
+    setCircleFlowStep('wallet-ready')
+    setCirclePendingChallengeId('')
+    setCircleMessage(`Circle wallet ready at ${shortenAddress(nextPrimaryWallet.address)}.`)
+    setWalletMode('circle')
+    setIsWalletModalOpen(false)
+    setIsWalletMenuOpen(false)
+    setStatus(
+      `${statusPrefix} at ${shortenAddress(nextPrimaryWallet.address)}. You can now use ArcEscrow with Circle or log out anytime.`,
+    )
+
+    return nextPrimaryWallet
+  }
+
   const completeCircleWalletSetup = async ({ challengeId, session = circleSession }) => {
     if (!challengeId) {
       throw new Error('Circle did not return a wallet setup challenge.')
@@ -862,6 +945,14 @@ function App() {
 
     if (!session?.userToken || !session?.encryptionKey) {
       throw new Error('Verify your email before finishing Circle wallet setup.')
+    }
+
+    const existingWallet = await activateCircleWalletSession(session, {
+      statusPrefix: 'Circle wallet reconnected',
+    })
+
+    if (existingWallet?.address) {
+      return existingWallet
     }
 
     const sdk = await syncCircleSdk({
@@ -895,22 +986,7 @@ function App() {
     })
 
     setCirclePendingChallengeId('')
-    const nextPrimaryWallet = await refreshCircleWalletSession(session)
-
-    setCircleFlowStep('wallet-ready')
-    setCircleMessage(
-      nextPrimaryWallet?.address
-        ? `Circle wallet ready at ${shortenAddress(nextPrimaryWallet.address)}.`
-        : 'Circle wallet session is ready.',
-    )
-    setWalletMode(nextPrimaryWallet?.address ? 'circle' : walletMode)
-    setIsWalletModalOpen(false)
-    setIsWalletMenuOpen(false)
-    setStatus(
-      nextPrimaryWallet?.address
-        ? `Circle wallet connected at ${shortenAddress(nextPrimaryWallet.address)}. You can now use ArcEscrow with Circle or log out anytime.`
-        : 'Circle wallet session is ready. Finish syncing the wallet before sending escrow transactions.',
-    )
+    const nextPrimaryWallet = await activateCircleWalletSession(session)
 
     return nextPrimaryWallet
   }
@@ -1486,6 +1562,52 @@ function App() {
   }, [activeWalletAddress])
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const storageKey = getDismissedEscrowsStorageKey(contractAddress, activeWalletAddress)
+
+    if (!storageKey) {
+      setDismissedEscrowIds([])
+      return
+    }
+
+    const storedIds = window.localStorage.getItem(storageKey)
+
+    if (!storedIds) {
+      setDismissedEscrowIds([])
+      return
+    }
+
+    try {
+      const parsedIds = JSON.parse(storedIds)
+      setDismissedEscrowIds(Array.isArray(parsedIds) ? parsedIds.map(String) : [])
+    } catch {
+      window.localStorage.removeItem(storageKey)
+      setDismissedEscrowIds([])
+    }
+  }, [activeWalletAddress, contractAddress])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const storageKey = getDismissedEscrowsStorageKey(contractAddress, activeWalletAddress)
+
+    if (!storageKey) {
+      return
+    }
+
+    if (dismissedEscrowIds.length) {
+      window.localStorage.setItem(storageKey, JSON.stringify(dismissedEscrowIds))
+    } else {
+      window.localStorage.removeItem(storageKey)
+    }
+  }, [activeWalletAddress, contractAddress, dismissedEscrowIds])
+
+  useEffect(() => {
     const loadContracts = async () => {
       if (!escrowContract) {
         setContractBalance(null)
@@ -1532,27 +1654,111 @@ function App() {
   }, [usdcContract])
 
   useEffect(() => {
-    const loadWalletData = async () => {
-      if (!activeWalletAddress || !usdcContract || !contractAddress || !ethers.isAddress(contractAddress)) {
-        setWalletBalance(null)
-        setAllowance(null)
+    if (!contractAddress || !ethers.isAddress(contractAddress)) {
+      setEscrowVolume(null)
+      setEscrowVolumeBlock(null)
+      setIsEscrowVolumeLoading(false)
+      return undefined
+    }
+
+    let isCancelled = false
+    let currentVolume = 0n
+    let lastScannedBlock = null
+    let scanQueue = Promise.resolve()
+    const volumeContract = new ethers.Contract(contractAddress, ESCROW_MANAGER_ABI, publicProvider)
+
+    const scanReleasedVolume = async (fromBlock, toBlock, shouldReplace = false) => {
+      if (fromBlock > toBlock) {
         return
       }
 
-      try {
-        const [nextBalance, nextAllowance] = await Promise.all([
-          usdcContract.balanceOf(activeWalletAddress),
-          usdcContract.allowance(activeWalletAddress, contractAddress),
-        ])
+      const [releasedEvents, disputeResolvedEvents] = await Promise.all([
+        queryEventsInChunks(volumeContract, volumeContract.filters.EscrowReleased(), fromBlock, toBlock),
+        queryEventsInChunks(volumeContract, volumeContract.filters.DisputeResolved(), fromBlock, toBlock),
+      ])
 
-        setWalletBalance(nextBalance)
-        setAllowance(nextAllowance)
-      } catch (walletError) {
-        setError(walletError.shortMessage || walletError.message)
+      if (isCancelled) {
+        return
+      }
+
+      const nextVolume =
+        sumEventAmounts(releasedEvents) + sumSellerDisputeReleaseAmounts(disputeResolvedEvents)
+
+      currentVolume = shouldReplace ? nextVolume : currentVolume + nextVolume
+      lastScannedBlock = toBlock
+      setEscrowVolume(currentVolume)
+      setEscrowVolumeBlock(toBlock)
+    }
+
+    const handleBlock = (blockNumber) => {
+      scanQueue = scanQueue
+        .then(async () => {
+          if (isCancelled || lastScannedBlock == null || blockNumber <= lastScannedBlock) {
+            return
+          }
+
+          await scanReleasedVolume(lastScannedBlock + 1, blockNumber)
+        })
+        .catch((volumeError) => {
+          if (!isCancelled) {
+            console.warn('Failed to refresh escrow volume:', volumeError)
+          }
+        })
+    }
+
+    const loadEscrowVolume = async () => {
+      try {
+        setIsEscrowVolumeLoading(true)
+        const latestBlock = await publicProvider.getBlockNumber()
+        const startBlock = getEscrowVolumeStartBlock(contractAddress, latestBlock)
+
+        await scanReleasedVolume(startBlock, latestBlock, true)
+
+        if (!isCancelled) {
+          publicProvider.on('block', handleBlock)
+        }
+      } catch (volumeError) {
+        if (!isCancelled) {
+          console.warn('Failed to load escrow volume:', volumeError)
+          setEscrowVolume(null)
+          setEscrowVolumeBlock(null)
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsEscrowVolumeLoading(false)
+        }
       }
     }
 
+    loadEscrowVolume()
+
+    return () => {
+      isCancelled = true
+      publicProvider.off('block', handleBlock)
+    }
+  }, [contractAddress, publicProvider])
+
+  const loadWalletData = async () => {
+    if (!activeWalletAddress || !usdcContract || !contractAddress || !ethers.isAddress(contractAddress)) {
+      setWalletBalance(null)
+      setAllowance(null)
+      return
+    }
+
+    const [nextBalance, nextAllowance] = await Promise.all([
+      usdcContract.balanceOf(activeWalletAddress),
+      usdcContract.allowance(activeWalletAddress, contractAddress),
+    ])
+
+    setWalletBalance(nextBalance)
+    setAllowance(nextAllowance)
+  }
+
+  useEffect(() => {
     loadWalletData()
+      .catch((walletError) => {
+        setError(walletError.shortMessage || walletError.message)
+      })
   }, [activeWalletAddress, usdcContract, contractAddress, isBusy])
 
   useEffect(() => {
@@ -1782,12 +1988,68 @@ function App() {
     }
 
     if (activeWalletAddress) {
-      await loadMyEscrows()
-      await loadTransactionHistory()
+      await Promise.all([
+        loadWalletData(),
+        loadMyEscrows(),
+        loadTransactionHistory(),
+      ])
     }
 
     if (canUseCircleWrites) {
       await refreshCircleWalletSession()
+    }
+  }
+
+  const refreshBrowserWalletConnection = async () => {
+    if (!window.ethereum) {
+      throw new Error('No injected wallet found. Install MetaMask or another EVM wallet.')
+    }
+
+    const browserProvider = new ethers.BrowserProvider(window.ethereum)
+    const accounts = await browserProvider.send('eth_accounts', [])
+
+    if (!accounts[0]) {
+      throw new Error('Browser wallet is disconnected. Connect it again to refresh wallet data.')
+    }
+
+    const [nextSigner, network] = await Promise.all([
+      browserProvider.getSigner(),
+      browserProvider.getNetwork(),
+    ])
+
+    setProvider(browserProvider)
+    setSigner(nextSigner)
+    setWalletAddress(accounts[0])
+    setChainId(network.chainId.toString())
+    setWalletMode('browser')
+  }
+
+  const handleRefreshWallet = async () => {
+    try {
+      setIsBusy(true)
+      setError('')
+      setIsWalletMenuOpen(false)
+      setStatus('Refreshing wallet, balances, escrows, and transaction history...')
+
+      if (walletMode === 'circle') {
+        const refreshedWallet = await activateCircleWalletSession(circleSession, {
+          statusPrefix: 'Circle wallet refreshed',
+        })
+
+        if (!refreshedWallet?.address) {
+          throw new Error('No Circle Arc wallet was found for this session.')
+        }
+      } else {
+        await refreshBrowserWalletConnection()
+      }
+
+      await refreshLiveData()
+      setStatus('Wallet balance, escrows, and transaction history refreshed.')
+    } catch (refreshError) {
+      setError(getDisplayError(refreshError))
+      setStatus('Wallet refresh could not complete. Try reconnecting if the balance still looks stale.')
+    } finally {
+      setIsBusy(false)
     }
   }
 
@@ -2332,6 +2594,18 @@ function App() {
     setStatus(`Escrow #${escrow.id} loaded from your dashboard.`)
   }
 
+  const handleDismissDashboardEscrow = (escrow) => {
+    setDismissedEscrowIds((current) => (
+      current.includes(escrow.id) ? current : [...current, escrow.id]
+    ))
+
+    if (escrowRecord?.id === escrow.id) {
+      setEscrowRecord(null)
+    }
+
+    setStatus(`Escrow #${escrow.id} removed from this dashboard view. The onchain escrow is unchanged.`)
+  }
+
   return (
     <main className={`app-shell${isWalletModalOpen ? ' app-shell--wallet-modal-open' : ''}`}>
       <header className="app-nav">
@@ -2470,18 +2744,10 @@ function App() {
                   <button
                     type="button"
                     className="wallet-menu__action"
-                    onClick={() => {
-                      setIsWalletMenuOpen(false)
-                      if (walletMode === 'circle') {
-                        void refreshCircleWalletSession()
-                        setStatus('Refreshing Circle wallet details...')
-                      } else {
-                        connectWallet()
-                      }
-                    }}
+                    onClick={handleRefreshWallet}
                     role="menuitem"
                   >
-                    {walletMode === 'circle' ? 'Refresh Circle wallet' : 'Refresh wallet'}
+                    Refresh wallet
                   </button>
                   <button
                     type="button"
@@ -2510,6 +2776,16 @@ function App() {
                 <p className="lede">
                   ArcEscrow uses smart contracts and USDC on Arc Network to secure every deal.
                 </p>
+                <div className="hero-stats" aria-label="ArcEscrow volume">
+                  <div>
+                    <span>Escrow Volume</span>
+                    <strong>
+                      {isEscrowVolumeLoading && escrowVolume == null
+                        ? 'Syncing...'
+                        : `${formatTokenAmount(escrowVolume, tokenDecimals)} ${tokenSymbol}`}
+                    </strong>
+                  </div>
+                </div>
                 <div className="hero-links">
                   <button type="button" onClick={() => goToPage('buyer')}>Create Escrow</button>
                   <button type="button" className="button-secondary" onClick={() => goToPage('seller')}>Explore Listings</button>
@@ -2635,6 +2911,13 @@ function App() {
                         }}
                       >
                         Prepare next step
+                      </button>
+                      <button
+                        type="button"
+                        className="button-secondary dashboard-item__delete"
+                        onClick={() => handleDismissDashboardEscrow(escrow)}
+                      >
+                        Delete
                       </button>
                       <a href={getExplorerUrl(`/address/${contractAddress}`)} target="_blank" rel="noreferrer">
                         View contract
