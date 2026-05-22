@@ -2954,7 +2954,7 @@ function App() {
           >
             <div className="panel__header">
               <div>
-                <p className="section-label">Flow 5</p>
+                <p className="section-label">Flow 4</p>
                 <h3>Send to seller</h3>
               </div>
             </div>
@@ -2988,7 +2988,7 @@ function App() {
           >
             <div className="panel__header">
               <div>
-                <p className="section-label">Flow 6</p>
+                <p className="section-label">Flow 5</p>
                 <h3>Return to buyer</h3>
               </div>
             </div>
@@ -3022,7 +3022,7 @@ function App() {
           >
             <div className="panel__header">
               <div>
-                <p className="section-label">Flow 7</p>
+                <p className="section-label">Flow 6</p>
                 <h3>Open dispute</h3>
               </div>
             </div>
