@@ -2404,12 +2404,10 @@ function App() {
         <div className="workspace-topbar">
           <div className="workspace-topbar__spacer" />
           <div className="app-nav__meta workspace-topbar__meta">
-            {activePage === 'home' ? (
-              <div className="nav-chip">
-                <span>Wallet Balance</span>
-                <strong>{formatTokenAmount(walletBalance, tokenDecimals)} {tokenSymbol}</strong>
-              </div>
-            ) : null}
+            <div className="nav-chip">
+              <span>Available Balance</span>
+              <strong>{formatTokenAmount(walletBalance, tokenDecimals)} {tokenSymbol}</strong>
+            </div>
             {hasConnectedWallet && !isCorrectNetwork && chainId ? (
               <button type="button" className="button-secondary nav-switch-button" onClick={switchToArcTestnet} disabled={isBusy}>
                 Switch to Arc
