@@ -1262,16 +1262,7 @@ function App() {
 
     const restoreCircleWallet = async () => {
       try {
-        setStatus('Restoring your Circle wallet session...')
-        const nextPrimaryWallet = await refreshCircleWalletSession(circleSession)
-
-        if (isCancelled) {
-          return
-        }
-
-        if (nextPrimaryWallet?.address) {
-          setStatus(`Circle wallet restored at ${shortenAddress(nextPrimaryWallet.address)}.`)
-        }
+        await refreshCircleWalletSession(circleSession)
       } catch (restoreError) {
         if (isCancelled) {
           return
