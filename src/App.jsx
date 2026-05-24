@@ -308,9 +308,7 @@ function getDisplayError(error) {
 function setDisplayError(setError, error) {
   const message = getDisplayError(error)
 
-  if (message) {
-    setError(message)
-  }
+  setError(message)
 }
 
 function wait(ms) {
