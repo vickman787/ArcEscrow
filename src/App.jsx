@@ -2610,7 +2610,7 @@ function App() {
       <header className="app-nav">
         <a
           className="app-nav__brand app-nav__brand-link"
-          href="https://arc-escrow-blue.vercel.app/"
+          href="https://arcescrow.xyz/"
           aria-label="Open ArcEscrow website"
         >
           <img className="brand-logo" src="/logo-arc-1.svg" alt="ArcEscrow logo" />
