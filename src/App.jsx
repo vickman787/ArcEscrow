@@ -299,10 +299,18 @@ function getDisplayError(error) {
   const message = error?.shortMessage || error?.reason || error?.message || 'Something went wrong.'
 
   if (typeof message === 'string' && message.toLowerCase().includes('could not coalesce error')) {
-    return 'The transaction finished, but the app could not refresh contract data right away.'
+    return ''
   }
 
   return message
+}
+
+function setDisplayError(setError, error) {
+  const message = getDisplayError(error)
+
+  if (message) {
+    setError(message)
+  }
 }
 
 function wait(ms) {
@@ -1273,7 +1281,7 @@ function App() {
         setCircleWallets([])
         setCircleWalletBalance(null)
         setWalletMode(null)
-        setError(getDisplayError(restoreError))
+        setDisplayError(setError, restoreError)
         setCircleMessage('Your Circle session expired. Please sign in again.')
         setStatus('Circle session expired. Sign in again to continue.')
       }
@@ -1614,7 +1622,7 @@ function App() {
         setUsdcAddress(nextUsdcAddress)
         setContractBalance(nextBalance)
       } catch (contractError) {
-        setError(contractError.shortMessage || contractError.message)
+        setDisplayError(setError, contractError)
       }
     }
 
@@ -1748,7 +1756,7 @@ function App() {
   useEffect(() => {
     loadWalletData()
       .catch((walletError) => {
-        setError(walletError.shortMessage || walletError.message)
+        setDisplayError(setError, walletError)
       })
   }, [activeWalletAddress, usdcContract, contractAddress, isBusy])
 
@@ -1828,7 +1836,7 @@ function App() {
 
       setMyEscrows(walletEscrows)
     } catch (dashboardError) {
-      setError(dashboardError.shortMessage || dashboardError.message)
+      setDisplayError(setError, dashboardError)
     } finally {
       setIsDashboardLoading(false)
     }
@@ -1961,7 +1969,7 @@ function App() {
 
       setTransactionHistory(nextHistory)
     } catch (historyError) {
-      setError(historyError.shortMessage || historyError.message)
+      setDisplayError(setError, historyError)
     } finally {
       setIsHistoryLoading(false)
     }
@@ -2037,7 +2045,7 @@ function App() {
       await refreshLiveData()
       setStatus('Wallet balance, escrows, and transaction history refreshed.')
     } catch (refreshError) {
-      setError(getDisplayError(refreshError))
+      setDisplayError(setError, refreshError)
       setStatus('Wallet refresh could not complete. Try reconnecting if the balance still looks stale.')
     } finally {
       setIsBusy(false)
@@ -2087,7 +2095,7 @@ function App() {
 
       return { txHash, receipt }
     } catch (txError) {
-      setError(getDisplayError(txError))
+      setDisplayError(setError, txError)
       return null
     } finally {
       setIsBusy(false)
@@ -2154,7 +2162,7 @@ function App() {
           : 'Wallet connected. Switch to Arc Testnet before sending transactions.',
       )
     } catch (walletError) {
-      setError(walletError.shortMessage || walletError.message)
+      setDisplayError(setError, walletError)
     }
   }
 
@@ -2253,10 +2261,10 @@ function App() {
 
           setStatus('Arc Testnet was added to your wallet and selected.')
         } catch (addError) {
-          setError(addError.shortMessage || addError.message)
+          setDisplayError(setError, addError)
         }
       } else {
-        setError(switchError.shortMessage || switchError.message)
+        setDisplayError(setError, switchError)
       }
     } finally {
       setIsBusy(false)
@@ -2443,7 +2451,7 @@ function App() {
         console.warn('Post-create refresh failed:', refreshError)
       }
     } catch (createError) {
-      setError(getDisplayError(createError))
+      setDisplayError(setError, createError)
     } finally {
       setIsBusy(false)
     }
@@ -2497,7 +2505,7 @@ function App() {
         console.warn('Post-approval refresh failed:', refreshError)
       }
     } catch (approveError) {
-      setError(getDisplayError(approveError))
+      setDisplayError(setError, approveError)
     } finally {
       setIsBusy(false)
     }
@@ -2575,7 +2583,7 @@ function App() {
       syncEscrowWorkspace(lookupId)
       setStatus(`Loaded escrow #${lookupId}.`)
     } catch (lookupError) {
-      setError(lookupError.shortMessage || lookupError.message)
+      setDisplayError(setError, lookupError)
     }
   }
 
