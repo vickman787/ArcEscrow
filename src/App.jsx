@@ -27,7 +27,11 @@ const DEFAULT_CONTRACT_ADDRESS =
   import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS?.trim() ||
   '0x657BD86C15911E0ACF6DD1a5fC840647435580A3'
 
-const APP_BASE_URL = import.meta.env.VITE_APP_URL?.trim() || ''
+const CANONICAL_APP_BASE_URL = 'https://arcescrow.xyz'
+const configuredAppBaseUrl = import.meta.env.VITE_APP_URL?.trim().replace(/\/$/, '') || ''
+const APP_BASE_URL = configuredAppBaseUrl.includes('arc-escrow-blue.vercel.app')
+  ? CANONICAL_APP_BASE_URL
+  : configuredAppBaseUrl || CANONICAL_APP_BASE_URL
 
 const ESCROW_MANAGER_ABI = [
   'function usdc() view returns (address)',
@@ -2608,7 +2612,7 @@ function App() {
       <header className="app-nav">
         <a
           className="app-nav__brand app-nav__brand-link"
-          href="https://arcescrow.xyz/"
+          href={`${APP_BASE_URL}/`}
           aria-label="Open ArcEscrow website"
         >
           <img className="brand-logo" src="/logo-arc-1.svg" alt="ArcEscrow logo" />

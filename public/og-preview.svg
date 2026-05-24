@@ -13,7 +13,7 @@
   <text x="88" y="430" fill="#D7E9E1" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="500" letter-spacing="0">Seller creates a payment link. Buyer opens it, funds the deal,</text>
   <text x="88" y="470" fill="#D7E9E1" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="500" letter-spacing="0">and releases or refunds transparently onchain.</text>
   <rect x="88" y="515" width="220" height="54" rx="27" fill="#F4FBF7" fill-opacity="0.1"/>
-  <text x="120" y="550" fill="#F4FBF7" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="0">arcescrow.vercel.app</text>
+  <text x="120" y="550" fill="#F4FBF7" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="0">arcescrow.xyz</text>
   <defs>
     <linearGradient id="paint0_linear_1_1" x1="46" y1="34" x2="1105" y2="606" gradientUnits="userSpaceOnUse">
       <stop stop-color="#163127"/>
