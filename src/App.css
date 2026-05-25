@@ -10,7 +10,7 @@
 
 .app-nav {
   grid-column: 1;
-  grid-row: 1 / span 2;
+  grid-row: 1;
   position: sticky;
   top: 1rem;
   z-index: 10;
@@ -26,6 +26,14 @@
   background: var(--surface-strong);
   backdrop-filter: blur(18px);
   box-shadow: var(--shadow);
+}
+
+.app-main {
+  grid-column: 2;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 .app-nav__brand,
@@ -581,8 +589,8 @@
 }
 
 .top-band {
-  grid-column: 2;
-  grid-row: 1;
+  grid-column: auto;
+  grid-row: auto;
   position: relative;
   min-height: 21rem;
   overflow: hidden;
@@ -748,8 +756,8 @@
 }
 
 .workspace {
-  grid-column: 2;
-  grid-row: 1;
+  grid-column: auto;
+  grid-row: auto;
   min-width: 0;
   margin: 0;
   position: relative;
@@ -766,10 +774,12 @@
 }
 
 .top-band + .workspace {
-  grid-row: 2;
+  grid-row: auto;
 }
 
 .workspace-topbar {
+  grid-column: auto;
+  grid-row: auto;
   position: relative;
   z-index: 30;
   display: flex;

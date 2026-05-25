@@ -2647,35 +2647,7 @@ function App() {
         </nav>
       </header>
 
-      {activePage !== 'home' ? (
-        <section className="top-band top-band--page">
-          <img
-            alt="Abstract vault with digital payment light trails"
-            src="https://images.unsplash.com/photo-1639322537228-f710d846310a?auto=format&fit=crop&w=1200&q=80"
-          />
-          <div className="top-band__content">
-            <p className="eyebrow">Payments</p>
-            <h1>
-              {activePage === 'seller' && 'Create and share a polished payment link for every deal.'}
-              {activePage === 'buyer' && 'Open a listing link, review the order, and create escrow.'}
-              {activePage === 'manage' && 'Approve, fund, release, refund, inspect live escrows, and review wallet activity.'}
-              {activePage === 'faq' && 'Everything buyers and sellers need to understand ArcEscrow.'}
-            </h1>
-            <p className="lede">
-              {activePage === 'seller' &&
-                'Connect a seller wallet, define the item and price, then generate a shareable link that opens directly in the buyer flow.'}
-              {activePage === 'buyer' &&
-                'The buyer sees the seller address, arbiter, and amount prefilled, then creates an onchain escrow before approving and locking funds.'}
-              {activePage === 'manage' &&
-                'Track the contract state, approve USDC, lock funds, mark delivery, complete or dispute escrows, and review history from one workspace.'}
-              {activePage === 'faq' &&
-                'Learn how seller links, arbiters, buyer funding, escrow IDs, Arc Testnet, and USDC all fit together in the live app.'}
-            </p>
-          </div>
-        </section>
-      ) : null}
-
-      <section className={`workspace workspace--${activePage}`}>
+      <div className="app-main">
         <div className="workspace-topbar">
           <div className="workspace-topbar__spacer" />
           <div className="app-nav__meta workspace-topbar__meta">
@@ -2764,7 +2736,36 @@ function App() {
           </div>
         </div>
 
-        {activePage === 'home' ? (
+        {activePage !== 'home' ? (
+          <section className="top-band top-band--page">
+            <img
+              alt="Abstract vault with digital payment light trails"
+              src="https://images.unsplash.com/photo-1639322537228-f710d846310a?auto=format&fit=crop&w=1200&q=80"
+            />
+            <div className="top-band__content">
+              <p className="eyebrow">Payments</p>
+              <h1>
+                {activePage === 'seller' && 'Create and share a polished payment link for every deal.'}
+                {activePage === 'buyer' && 'Open a listing link, review the order, and create escrow.'}
+                {activePage === 'manage' && 'Approve, fund, release, refund, inspect live escrows, and review wallet activity.'}
+                {activePage === 'faq' && 'Everything buyers and sellers need to understand ArcEscrow.'}
+              </h1>
+              <p className="lede">
+                {activePage === 'seller' &&
+                  'Connect a seller wallet, define the item and price, then generate a shareable link that opens directly in the buyer flow.'}
+                {activePage === 'buyer' &&
+                  'The buyer sees the seller address, arbiter, and amount prefilled, then creates an onchain escrow before approving and locking funds.'}
+                {activePage === 'manage' &&
+                  'Track the contract state, approve USDC, lock funds, mark delivery, complete or dispute escrows, and review history from one workspace.'}
+                {activePage === 'faq' &&
+                  'Learn how seller links, arbiters, buyer funding, escrow IDs, Arc Testnet, and USDC all fit together in the live app.'}
+              </p>
+            </div>
+          </section>
+        ) : null}
+
+        <section className={`workspace workspace--${activePage}`}>
+          {activePage === 'home' ? (
           <section className="home-overview">
             <section className="top-band top-band--dashboard home-hero">
               <img
@@ -3688,7 +3689,8 @@ function App() {
             </section>
           </div>
         ) : null}
-      </section>
+        </section>
+      </div>
     </main>
   )
 }
