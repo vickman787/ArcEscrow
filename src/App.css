@@ -83,6 +83,12 @@
   display: block;
 }
 
+.hamburger-button:hover:enabled,
+.hamburger-button:focus-visible {
+  background: var(--surface-muted);
+  transform: none;
+}
+
 .nav-link {
   width: 100%;
   min-height: 3.55rem;
@@ -94,9 +100,21 @@
   justify-content: flex-start;
 }
 
+.nav-link:hover:enabled,
+.nav-link:focus-visible {
+  background: rgba(31, 143, 95, 0.08);
+  color: var(--accent-strong);
+  transform: none;
+}
+
 .nav-link--active {
   background: rgba(31, 143, 95, 0.1);
   color: var(--accent-strong);
+}
+
+.nav-link--active:hover:enabled,
+.nav-link--active:focus-visible {
+  background: rgba(31, 143, 95, 0.1);
 }
 
 .nav-chip {
