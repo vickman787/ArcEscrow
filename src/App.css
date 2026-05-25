@@ -217,6 +217,12 @@
   padding: 0;
 }
 
+.wallet-modal__backdrop:hover:enabled,
+.wallet-modal__backdrop:focus-visible {
+  background: rgba(5, 10, 14, 0.86);
+  transform: none;
+}
+
 .app-shell--wallet-modal-open .top-band,
 .app-shell--wallet-modal-open .page-card,
 .app-shell--wallet-modal-open .toolbar,
