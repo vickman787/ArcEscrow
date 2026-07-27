@@ -250,6 +250,12 @@ function isActiveEscrowState(state) {
   return state === 'Created' || state === 'Funded'
 }
 
+const TERMINAL_ESCROW_STATES = new Set(['Released', 'Refunded', 'Cancelled'])
+
+function isTerminalEscrowState(state) {
+  return TERMINAL_ESCROW_STATES.has(state)
+}
+
 function getNextEscrowStep(state) {
   switch (state) {
     case 'Created':
@@ -576,6 +582,7 @@ function App() {
   const [circleWalletBalance, setCircleWalletBalance] = useState(null)
   const circleSdkRef = useRef(null)
   const circleLoginFlowRef = useRef(false)
+  const escrowRecordCacheRef = useRef(new Map())
   const [theme, setTheme] = useState(getInitialTheme)
   const isCircleConfigured = hasCircleAppId()
   const circlePrimaryWallet = pickArcWallet(circleWallets)
@@ -1852,12 +1859,28 @@ function App() {
       }
 
       const escrowIndexes = Array.from({ length: totalEscrows }, (_, index) => index)
-      const records = await Promise.all(
-        escrowIndexes.map((escrowId) => escrowContract.getEscrow(escrowId)),
+      const cache = escrowRecordCacheRef.current
+      const getCacheKey = (escrowId) => `${contractAddress.toLowerCase()}:${escrowId}`
+      const idsToFetch = escrowIndexes.filter((escrowId) => !cache.has(getCacheKey(escrowId)))
+
+      const freshRecords = await Promise.all(
+        idsToFetch.map((escrowId) => escrowContract.getEscrow(escrowId)),
       )
+      const freshByEscrowId = new Map()
+
+      idsToFetch.forEach((escrowId, index) => {
+        const escrow = buildEscrowRecord(freshRecords[index])
+        freshByEscrowId.set(escrowId, escrow)
+
+        // Only cache terminal states forever - Created/Funded/Delivered/Disputed can still change.
+        if (isTerminalEscrowState(escrow.state)) {
+          cache.set(getCacheKey(escrowId), escrow)
+        }
+      })
+
       const normalizedWallet = activeWalletAddress.toLowerCase()
-      const walletEscrows = records
-        .map((record) => buildEscrowRecord(record))
+      const walletEscrows = escrowIndexes
+        .map((escrowId) => cache.get(getCacheKey(escrowId)) || freshByEscrowId.get(escrowId))
         .filter((escrow) =>
           escrow.buyer.toLowerCase() === normalizedWallet ||
           escrow.seller.toLowerCase() === normalizedWallet ||
@@ -1884,17 +1907,19 @@ function App() {
     try {
       setIsHistoryLoading(true)
       const normalizedWallet = activeWalletAddress.toLowerCase()
+      const latestBlock = await readProvider.getBlockNumber()
+      const fromBlock = getEscrowVolumeStartBlock(contractAddress, latestBlock)
       const [approvalEvents, createdEvents, fundedEvents, deliveredEvents, releasedEvents, refundedEvents, disputeOpenedEvents, disputeResolvedEvents, cancelledEvents, timeoutVoteEvents] = await Promise.all([
-        usdcContract.queryFilter(usdcContract.filters.Approval(activeWalletAddress, contractAddress)),
-        escrowContract.queryFilter(escrowContract.filters.EscrowCreated()),
-        escrowContract.queryFilter(escrowContract.filters.EscrowFunded()),
-        escrowContract.queryFilter(escrowContract.filters.DeliveryMarked()),
-        escrowContract.queryFilter(escrowContract.filters.EscrowReleased()),
-        escrowContract.queryFilter(escrowContract.filters.EscrowRefunded()),
-        escrowContract.queryFilter(escrowContract.filters.DisputeOpened()),
-        escrowContract.queryFilter(escrowContract.filters.DisputeResolved()),
-        escrowContract.queryFilter(escrowContract.filters.EscrowCancelled()),
-        escrowContract.queryFilter(escrowContract.filters.TimeoutVoteCast()),
+        queryEventsInChunks(usdcContract, usdcContract.filters.Approval(activeWalletAddress, contractAddress), fromBlock, latestBlock),
+        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowCreated(), fromBlock, latestBlock),
+        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowFunded(), fromBlock, latestBlock),
+        queryEventsInChunks(escrowContract, escrowContract.filters.DeliveryMarked(), fromBlock, latestBlock),
+        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowReleased(), fromBlock, latestBlock),
+        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowRefunded(), fromBlock, latestBlock),
+        queryEventsInChunks(escrowContract, escrowContract.filters.DisputeOpened(), fromBlock, latestBlock),
+        queryEventsInChunks(escrowContract, escrowContract.filters.DisputeResolved(), fromBlock, latestBlock),
+        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowCancelled(), fromBlock, latestBlock),
+        queryEventsInChunks(escrowContract, escrowContract.filters.TimeoutVoteCast(), fromBlock, latestBlock),
       ])
       const escrowEvents = [
         ...createdEvents,
