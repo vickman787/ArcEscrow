@@ -29,3 +29,6 @@ tmp
 
 # Office lock files
 ~$*
+
+# Local tooling state
+.claude/
