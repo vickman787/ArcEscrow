@@ -9,6 +9,21 @@ import {
   pickUsdcBalance,
   postCircleAction,
 } from './lib/circle'
+import {
+  DEFAULT_CONTRACT_ADDRESS,
+  buildEscrowRecord,
+  formatTokenAmount,
+  getCreateFormError,
+  getDismissedEscrowsStorageKey,
+  getDisplayError,
+  getEscrowRole,
+  getEscrowVolumeStartBlock,
+  getHistoryActionLabel,
+  getNextEscrowStep,
+  isActiveEscrowState,
+  isTerminalEscrowState,
+  shortenAddress,
+} from './lib/escrow'
 
 const ARC_TESTNET = {
   chainId: 5042002,
@@ -24,10 +39,6 @@ const ARC_TESTNET = {
 }
 
 const DISPUTE_TIMEOUT_LABEL = '7 days'
-
-const DEFAULT_CONTRACT_ADDRESS =
-  import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS?.trim() ||
-  '0x657BD86C15911E0ACF6DD1a5fC840647435580A3'
 
 const CANONICAL_APP_BASE_URL = 'https://arcescrow.xyz'
 const configuredAppBaseUrl = import.meta.env.VITE_APP_URL?.trim().replace(/\/$/, '') || ''
@@ -72,7 +83,6 @@ const ERC20_ABI = [
   'event Approval(address indexed owner, address indexed spender, uint256 value)',
 ]
 
-const escrowStates = ['Created', 'Funded', 'Delivered', 'Disputed', 'Released', 'Refunded', 'Cancelled']
 const NAV_ITEMS = [
   { id: 'home', label: 'Home' },
   { id: 'seller', label: 'Seller' },
@@ -125,10 +135,7 @@ const CIRCLE_SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000
 const CIRCLE_WALLETS_STORAGE_KEY = 'arc-escrow-circle-wallets'
 const CIRCLE_BALANCE_STORAGE_KEY = 'arc-escrow-circle-balance'
 const WALLET_MODE_STORAGE_KEY = 'arc-escrow-wallet-mode'
-const DISMISSED_ESCROWS_STORAGE_PREFIX = 'arc-escrow-dismissed-escrows'
 const LOG_QUERY_BLOCK_SPAN = 9999
-const FALLBACK_VOLUME_LOOKBACK_BLOCKS = 5_000_000
-const DEFAULT_VOLUME_START_BLOCK = 42_550_000
 
 function getInitialTheme() {
   if (typeof window === 'undefined') {
@@ -145,44 +152,6 @@ function getInitialTheme() {
 
 function getExplorerUrl(path) {
   return `${ARC_TESTNET.blockExplorerUrl}${path}`
-}
-
-function shortenAddress(value) {
-  if (!value) {
-    return 'Not connected'
-  }
-
-  return `${value.slice(0, 6)}...${value.slice(-4)}`
-}
-
-function formatTokenAmount(value, decimals = 6) {
-  if (value == null) {
-    return '--'
-  }
-
-  try {
-    return Number(ethers.formatUnits(value, decimals)).toLocaleString(undefined, {
-      maximumFractionDigits: 6,
-    })
-  } catch {
-    return '--'
-  }
-}
-
-function getEscrowVolumeStartBlock(contractAddress, latestBlock) {
-  if (contractAddress?.toLowerCase() === DEFAULT_CONTRACT_ADDRESS.toLowerCase()) {
-    return DEFAULT_VOLUME_START_BLOCK
-  }
-
-  return Math.max(0, latestBlock - FALLBACK_VOLUME_LOOKBACK_BLOCKS)
-}
-
-function getDismissedEscrowsStorageKey(contractAddress, walletAddress) {
-  if (!contractAddress || !walletAddress) {
-    return ''
-  }
-
-  return `${DISMISSED_ESCROWS_STORAGE_PREFIX}:${contractAddress.toLowerCase()}:${walletAddress.toLowerCase()}`
 }
 
 async function queryEventsInChunks(contract, filter, fromBlock, toBlock) {
@@ -210,78 +179,6 @@ function sumSellerDisputeReleaseAmounts(events) {
   }, 0n)
 }
 
-function buildEscrowRecord(record) {
-  return {
-    id: record.id.toString(),
-    buyer: record.buyer,
-    seller: record.seller,
-    arbiter: record.arbiter,
-    amount: record.amount,
-    state: escrowStates[Number(record.state)] || 'Unknown',
-    disputeOpenedAt: record.disputeOpenedAt ? Number(record.disputeOpenedAt) : 0,
-  }
-}
-
-function getEscrowRole(escrow, walletAddress) {
-  if (!walletAddress) {
-    return ''
-  }
-
-  const normalizedWallet = walletAddress.toLowerCase()
-  const isBuyer = escrow.buyer.toLowerCase() === normalizedWallet
-  const isSeller = escrow.seller.toLowerCase() === normalizedWallet
-  const isArbiter = escrow.arbiter.toLowerCase() === normalizedWallet
-
-  if (isBuyer && isSeller) {
-    return 'Buyer & Seller'
-  }
-
-  if (isBuyer) {
-    return 'Buyer'
-  }
-
-  if (isSeller) {
-    return 'Seller'
-  }
-
-  if (isArbiter) {
-    return 'Arbiter'
-  }
-
-  return ''
-}
-
-function isActiveEscrowState(state) {
-  return state === 'Created' || state === 'Funded'
-}
-
-const TERMINAL_ESCROW_STATES = new Set(['Released', 'Refunded', 'Cancelled'])
-
-function isTerminalEscrowState(state) {
-  return TERMINAL_ESCROW_STATES.has(state)
-}
-
-function getNextEscrowStep(state) {
-  switch (state) {
-    case 'Created':
-      return 'Approve and fund'
-    case 'Funded':
-      return 'Deliver, release, refund, or dispute'
-    case 'Delivered':
-      return 'Release, refund, or dispute'
-    case 'Disputed':
-      return 'Await arbiter resolution'
-    case 'Released':
-      return 'Completed'
-    case 'Refunded':
-      return 'Closed'
-    case 'Cancelled':
-      return 'Closed'
-    default:
-      return 'Review'
-  }
-}
-
 function formatTimestamp(timestamp) {
   if (!timestamp) {
     return '--'
@@ -294,51 +191,6 @@ function formatTimestamp(timestamp) {
     hour: 'numeric',
     minute: '2-digit',
   })
-}
-
-function getHistoryActionLabel(name) {
-  switch (name) {
-    case 'Approval':
-      return 'USDC Approved'
-    case 'EscrowCreated':
-      return 'Escrow Created'
-    case 'EscrowFunded':
-      return 'Escrow Funded'
-    case 'DeliveryMarked':
-      return 'Delivery Marked'
-    case 'EscrowReleased':
-      return 'Funds Released'
-    case 'EscrowRefunded':
-      return 'Buyer Refunded'
-    case 'DisputeOpened':
-      return 'Dispute Opened'
-    case 'DisputeResolved':
-      return 'Dispute Resolved'
-    case 'EscrowCancelled':
-      return 'Escrow Cancelled'
-    case 'TimeoutVoteCast':
-      return 'Timeout Vote Cast'
-    default:
-      return name
-  }
-}
-
-function getWelcomeLabel(walletAddress) {
-  if (!walletAddress) {
-    return 'Welcome'
-  }
-
-  return `Welcome, ${shortenAddress(walletAddress)}`
-}
-
-function getDisplayError(error) {
-  const message = error?.shortMessage || error?.reason || error?.message || 'Something went wrong.'
-
-  if (typeof message === 'string' && message.toLowerCase().includes('could not coalesce error')) {
-    return ''
-  }
-
-  return message
 }
 
 function setDisplayError(setError, error) {
@@ -413,52 +265,6 @@ function buildTrendPath(points, width, height, padding) {
     const controlX = (previous.x + point.x) / 2
     return `${path} C ${controlX} ${previous.y}, ${controlX} ${point.y}, ${point.x} ${point.y}`
   }, '')
-}
-
-function getCreateFormError({ seller, arbiter, amount, walletAddress, tokenDecimals }) {
-  if (!seller) {
-    return 'Enter the seller wallet address.'
-  }
-
-  if (!ethers.isAddress(seller)) {
-    return 'Seller wallet must be a full valid EVM address.'
-  }
-
-  if (walletAddress && seller.toLowerCase() === walletAddress.toLowerCase()) {
-    return 'Buyer and seller cannot be the same wallet.'
-  }
-
-  if (!arbiter) {
-    return 'Enter the arbiter wallet address.'
-  }
-
-  if (!ethers.isAddress(arbiter)) {
-    return 'Arbiter wallet must be a full valid EVM address.'
-  }
-
-  if (walletAddress && arbiter.toLowerCase() === walletAddress.toLowerCase()) {
-    return 'Buyer cannot also be the arbiter.'
-  }
-
-  if (arbiter.toLowerCase() === seller.toLowerCase()) {
-    return 'Seller and arbiter must be different wallets.'
-  }
-
-  if (!amount) {
-    return 'Enter the escrow amount.'
-  }
-
-  try {
-    const parsedAmount = ethers.parseUnits(amount, tokenDecimals)
-
-    if (parsedAmount <= 0n) {
-      return 'Amount must be greater than zero.'
-    }
-  } catch {
-    return 'Enter a valid token amount.'
-  }
-
-  return ''
 }
 
 function buildListingLink({ seller, arbiter, amount, title, description }) {
@@ -609,7 +415,6 @@ function App() {
         ? `Wrong network (${activeChainId})`
         : 'Wallet disconnected'
     : 'Wallet disconnected'
-  const circleWalletAddress = circlePrimaryWallet?.address || ''
   const circleWalletBalanceLabel = useMemo(() => {
     if (!circleWalletBalance) {
       return ''
@@ -691,8 +496,14 @@ function App() {
         value: formatTokenAmount(totalVolume, tokenDecimals),
         helper: 'Combined escrow amount across your loaded records.',
       },
+      {
+        id: 'contract-balance',
+        label: `Contract Balance (${tokenSymbol})`,
+        value: contractBalance == null ? '--' : formatTokenAmount(contractBalance, tokenDecimals),
+        helper: 'Total USDC currently held by the escrow contract across all users.',
+      },
     ]
-  }, [dashboardCounts.active, dashboardCounts.completed, tokenDecimals, tokenSymbol, visibleMyEscrows])
+  }, [contractBalance, dashboardCounts.active, dashboardCounts.completed, tokenDecimals, tokenSymbol, visibleMyEscrows])
   const recentEscrows = useMemo(() => visibleMyEscrows.slice(0, 5), [visibleMyEscrows])
   const walletTrend = useMemo(() => {
     const formatter = new Intl.DateTimeFormat(undefined, { weekday: 'short' })
@@ -1808,53 +1619,6 @@ function App() {
       })
   }, [activeWalletAddress, usdcContract, contractAddress, isBusy])
 
-  useEffect(() => {
-    if (!activeWalletAddress || !escrowContract || (activePage !== 'manage' && activePage !== 'home')) {
-      if (!activeWalletAddress) {
-        setMyEscrows([])
-      }
-
-      return
-    }
-
-    loadMyEscrows()
-  }, [activeWalletAddress, escrowContract, activePage])
-
-  useEffect(() => {
-    if (!activeWalletAddress || !escrowContract || !(provider || publicProvider) || (activePage !== 'manage' && activePage !== 'home')) {
-      if (!activeWalletAddress) {
-        setTransactionHistory([])
-      }
-
-      return
-    }
-
-    loadTransactionHistory()
-  }, [activeWalletAddress, escrowContract, provider, publicProvider, activePage])
-
-  const refreshEscrow = async (escrowId) => {
-    if (!escrowContract) {
-      return
-    }
-
-    const record = await escrowContract.getEscrow(escrowId)
-    const nextRecord = buildEscrowRecord(record)
-
-    setEscrowRecord(nextRecord)
-  }
-
-  const syncEscrowWorkspace = (escrowId) => {
-    setLookupId(escrowId)
-    setApproveForm({ escrowId })
-    setFundForm({ escrowId })
-    setReleaseForm({ escrowId })
-    setRefundForm({ escrowId })
-    setDisputeForm({ escrowId })
-    setResolveForm((current) => ({ ...current, escrowId }))
-    setCancelForm({ escrowId })
-    setTimeoutVoteForm((current) => ({ ...current, escrowId }))
-  }
-
   const loadMyEscrows = async () => {
     if (!escrowContract || !activeWalletAddress) {
       setMyEscrows([])
@@ -2046,6 +1810,53 @@ function App() {
     } finally {
       setIsHistoryLoading(false)
     }
+  }
+
+  useEffect(() => {
+    if (!activeWalletAddress || !escrowContract || (activePage !== 'manage' && activePage !== 'home')) {
+      if (!activeWalletAddress) {
+        setMyEscrows([])
+      }
+
+      return
+    }
+
+    loadMyEscrows()
+  }, [activeWalletAddress, escrowContract, activePage])
+
+  useEffect(() => {
+    if (!activeWalletAddress || !escrowContract || !(provider || publicProvider) || (activePage !== 'manage' && activePage !== 'home')) {
+      if (!activeWalletAddress) {
+        setTransactionHistory([])
+      }
+
+      return
+    }
+
+    loadTransactionHistory()
+  }, [activeWalletAddress, escrowContract, provider, publicProvider, activePage])
+
+  const refreshEscrow = async (escrowId) => {
+    if (!escrowContract) {
+      return
+    }
+
+    const record = await escrowContract.getEscrow(escrowId)
+    const nextRecord = buildEscrowRecord(record)
+
+    setEscrowRecord(nextRecord)
+  }
+
+  const syncEscrowWorkspace = (escrowId) => {
+    setLookupId(escrowId)
+    setApproveForm({ escrowId })
+    setFundForm({ escrowId })
+    setReleaseForm({ escrowId })
+    setRefundForm({ escrowId })
+    setDisputeForm({ escrowId })
+    setResolveForm((current) => ({ ...current, escrowId }))
+    setCancelForm({ escrowId })
+    setTimeoutVoteForm((current) => ({ ...current, escrowId }))
   }
 
   const refreshLiveData = async (refreshEscrowId) => {
@@ -2857,6 +2668,9 @@ function App() {
                         ? 'Syncing...'
                         : `${formatTokenAmount(escrowVolume, tokenDecimals)} ${tokenSymbol}`}
                     </strong>
+                    {escrowVolumeBlock ? (
+                      <p className="hero-stats__caption">Synced as of block {escrowVolumeBlock.toLocaleString()}</p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="hero-links">
@@ -2865,6 +2679,85 @@ function App() {
                 </div>
               </div>
             </section>
+
+            <div className="overview-stats-stack">
+              <section className="panel overview-panel">
+                <div className="panel__header">
+                  <div>
+                    <p className="section-label">Recent</p>
+                    <h3>Recent Escrows</h3>
+                  </div>
+                </div>
+                {!hasConnectedWallet ? (
+                  <p className="hint">Connect a wallet to see your most recent escrows.</p>
+                ) : isDashboardLoading ? (
+                  <p className="hint">Loading wallet escrows from the contract...</p>
+                ) : recentEscrows.length ? (
+                  <div className="dashboard-list">
+                    {recentEscrows.map((escrow) => (
+                      <article key={escrow.id} className="dashboard-item">
+                        <div className="dashboard-item__summary">
+                          <div>
+                            <p className="section-label">Escrow #{escrow.id}</p>
+                            <h4>{formatTokenAmount(escrow.amount, tokenDecimals)} {tokenSymbol}</h4>
+                          </div>
+                          <span className={`status-pill status-pill--${escrow.state.toLowerCase()}`}>{escrow.state}</span>
+                        </div>
+                        <div className="dashboard-item__actions">
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            onClick={() => {
+                              handleLoadDashboardEscrow(escrow)
+                              goToPage('manage')
+                            }}
+                          >
+                            Open in Manage
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="hint">No escrows yet for this wallet.</p>
+                )}
+              </section>
+
+              <section className="panel overview-panel overview-panel--chart">
+                <div className="panel__header">
+                  <div>
+                    <p className="section-label">Activity</p>
+                    <h3>7-day wallet activity</h3>
+                  </div>
+                </div>
+                {!hasConnectedWallet ? (
+                  <div className="chart-empty-state">
+                    <strong>Connect a wallet</strong>
+                    <p>Wallet activity from the last 7 days will appear here once you're connected.</p>
+                  </div>
+                ) : isHistoryLoading ? (
+                  <p className="hint">Loading transaction history...</p>
+                ) : walletTrend.hasData ? (
+                  <>
+                    <div className="chart-placeholder">
+                      <svg viewBox="0 0 480 220" preserveAspectRatio="none" aria-hidden="true">
+                        <path d={walletTrend.path} fill="none" stroke="var(--accent-strong)" strokeWidth="2" />
+                      </svg>
+                    </div>
+                    <div className="chart-label-row">
+                      {walletTrend.buckets.map((bucket) => (
+                        <span key={bucket.key}>{bucket.label}</span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="chart-empty-state">
+                    <strong>No recent activity</strong>
+                    <p>Fund, release, or refund an escrow to see 7-day trend data here.</p>
+                  </div>
+                )}
+              </section>
+            </div>
           </section>
         ) : null}
 

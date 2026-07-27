@@ -8,6 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "contracts:compile": "hardhat compile",
     "contracts:test": "hardhat test",
     "contracts:deploy:arc": "hardhat run scripts/deploy-escrow-v2.cjs --network arcTestnet"
@@ -31,6 +33,7 @@
     "globals": "^17.4.0",
     "hardhat": "^2.28.6",
     "vite": "^5.4.19",
-    "vite-plugin-node-polyfills": "^0.28.0"
+    "vite-plugin-node-polyfills": "^0.28.0",
+    "vitest": "^4.1.10"
   }
 }

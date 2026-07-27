@@ -731,6 +731,12 @@
   line-height: 1.1;
 }
 
+.hero-stats__caption {
+  margin: 0;
+  color: rgba(245, 247, 248, 0.6);
+  font-size: 0.72rem;
+}
+
 .hero-links a,
 .hero-links button {
   display: inline-flex;
