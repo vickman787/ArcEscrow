@@ -14,7 +14,8 @@ contract ArcEscrowManagerV2 {
         Delivered,
         Disputed,
         Released,
-        Refunded
+        Refunded,
+        Cancelled
     }
 
     struct Escrow {
@@ -24,12 +25,23 @@ contract ArcEscrowManagerV2 {
         address arbiter;
         uint256 amount;
         EscrowState state;
+        uint256 disputeOpenedAt;
     }
+
+    struct TimeoutVote {
+        bool buyerVoted;
+        bool buyerReleaseToSeller;
+        bool sellerVoted;
+        bool sellerReleaseToSeller;
+    }
+
+    uint256 public constant DISPUTE_TIMEOUT = 7 days;
 
     address public immutable usdc;
     uint256 public nextEscrowId;
 
     mapping(uint256 => Escrow) public escrows;
+    mapping(uint256 => TimeoutVote) public timeoutVotes;
 
     event EscrowCreated(
         uint256 indexed escrowId,
@@ -50,6 +62,8 @@ contract ArcEscrowManagerV2 {
         uint256 amount,
         bool releasedToSeller
     );
+    event EscrowCancelled(uint256 indexed escrowId, address indexed buyer);
+    event TimeoutVoteCast(uint256 indexed escrowId, address indexed voter, bool releaseToSeller);
 
     modifier escrowExists(uint256 escrowId) {
         require(escrowId < nextEscrowId, "Escrow does not exist");
@@ -104,7 +118,8 @@ contract ArcEscrowManagerV2 {
             seller: seller,
             arbiter: arbiter,
             amount: amount,
-            state: EscrowState.Created
+            state: EscrowState.Created,
+            disputeOpenedAt: 0
         });
 
         nextEscrowId++;
@@ -187,6 +202,7 @@ contract ArcEscrowManagerV2 {
         );
 
         escrow.state = EscrowState.Disputed;
+        escrow.disputeOpenedAt = block.timestamp;
 
         emit DisputeOpened(escrowId, msg.sender);
     }
@@ -213,6 +229,89 @@ contract ArcEscrowManagerV2 {
         emit DisputeResolved(escrowId, msg.sender, recipient, escrow.amount, releaseToSeller);
     }
 
+    function cancelEscrow(uint256 escrowId) external escrowExists(escrowId) onlyBuyer(escrowId) {
+        Escrow storage escrow = escrows[escrowId];
+        require(escrow.state == EscrowState.Created, "Escrow must be unfunded to cancel");
+
+        escrow.state = EscrowState.Cancelled;
+
+        emit EscrowCancelled(escrowId, msg.sender);
+    }
+
+    // If the arbiter has not resolved a dispute within DISPUTE_TIMEOUT, the buyer and
+    // seller can bypass them by both voting for the same outcome.
+    function voteTimeoutResolution(
+        uint256 escrowId,
+        bool releaseToSeller
+    ) external escrowExists(escrowId) onlyParticipant(escrowId) {
+        Escrow storage escrow = escrows[escrowId];
+        require(escrow.state == EscrowState.Disputed, "Escrow is not disputed");
+        require(
+            block.timestamp >= escrow.disputeOpenedAt + DISPUTE_TIMEOUT,
+            "Dispute timeout has not elapsed"
+        );
+
+        TimeoutVote storage vote = timeoutVotes[escrowId];
+
+        if (msg.sender == escrow.buyer) {
+            vote.buyerVoted = true;
+            vote.buyerReleaseToSeller = releaseToSeller;
+        } else {
+            vote.sellerVoted = true;
+            vote.sellerReleaseToSeller = releaseToSeller;
+        }
+
+        emit TimeoutVoteCast(escrowId, msg.sender, releaseToSeller);
+
+        if (!vote.buyerVoted || !vote.sellerVoted) {
+            return;
+        }
+
+        if (vote.buyerReleaseToSeller != vote.sellerReleaseToSeller) {
+            return;
+        }
+
+        address recipient;
+        if (releaseToSeller) {
+            escrow.state = EscrowState.Released;
+            recipient = escrow.seller;
+        } else {
+            escrow.state = EscrowState.Refunded;
+            recipient = escrow.buyer;
+        }
+
+        bool success = IERC20(usdc).transfer(recipient, escrow.amount);
+        require(success, "USDC timeout transfer failed");
+
+        emit DisputeResolved(escrowId, address(0), recipient, escrow.amount, releaseToSeller);
+    }
+
+    function getTimeoutVote(
+        uint256 escrowId
+    )
+        external
+        view
+        escrowExists(escrowId)
+        returns (
+            bool buyerVoted,
+            bool buyerReleaseToSeller,
+            bool sellerVoted,
+            bool sellerReleaseToSeller,
+            uint256 unlocksAt
+        )
+    {
+        TimeoutVote memory vote = timeoutVotes[escrowId];
+        Escrow storage escrow = escrows[escrowId];
+
+        return (
+            vote.buyerVoted,
+            vote.buyerReleaseToSeller,
+            vote.sellerVoted,
+            vote.sellerReleaseToSeller,
+            escrow.disputeOpenedAt == 0 ? 0 : escrow.disputeOpenedAt + DISPUTE_TIMEOUT
+        );
+    }
+
     function getEscrow(
         uint256 escrowId
     )
@@ -225,7 +324,8 @@ contract ArcEscrowManagerV2 {
             address seller,
             address arbiter,
             uint256 amount,
-            EscrowState state
+            EscrowState state,
+            uint256 disputeOpenedAt
         )
     {
         Escrow memory escrow = escrows[escrowId];
@@ -235,7 +335,8 @@ contract ArcEscrowManagerV2 {
             escrow.seller,
             escrow.arbiter,
             escrow.amount,
-            escrow.state
+            escrow.state,
+            escrow.disputeOpenedAt
         );
     }
 

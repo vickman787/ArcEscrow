@@ -1456,6 +1456,11 @@
   color: #b33a30;
 }
 
+.status-pill--cancelled {
+  background: rgba(120, 120, 128, 0.14);
+  color: #6b6b76;
+}
+
 .panel button,
 .listing-link-box button {
   width: fit-content;

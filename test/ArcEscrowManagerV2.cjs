@@ -1,5 +1,8 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { time } = require("@nomicfoundation/hardhat-network-helpers");
+
+const DISPUTE_TIMEOUT_SECONDS = 7 * 24 * 60 * 60;
 
 describe("ArcEscrowManagerV2", function () {
   const ESCROW_AMOUNT = ethers.parseUnits("10", 6);
@@ -174,5 +177,135 @@ describe("ArcEscrowManagerV2", function () {
     await expect(escrow.connect(seller).resolveDispute(0, true)).to.be.revertedWith(
       "Only arbiter can call this"
     );
+  });
+
+  describe("cancelEscrow", function () {
+    it("lets the buyer cancel an unfunded escrow", async function () {
+      const { buyer, seller, arbiter, escrow } = await deployFixture();
+
+      await escrow.connect(buyer).createEscrow(seller.address, arbiter.address, ESCROW_AMOUNT);
+
+      await expect(escrow.connect(buyer).cancelEscrow(0))
+        .to.emit(escrow, "EscrowCancelled")
+        .withArgs(0, buyer.address);
+
+      const record = await escrow.getEscrow(0);
+      expect(record.state).to.equal(6n);
+    });
+
+    it("blocks non-buyers from cancelling", async function () {
+      const { buyer, seller, arbiter, escrow } = await deployFixture();
+
+      await escrow.connect(buyer).createEscrow(seller.address, arbiter.address, ESCROW_AMOUNT);
+
+      await expect(escrow.connect(seller).cancelEscrow(0)).to.be.revertedWith(
+        "Only buyer can call this"
+      );
+    });
+
+    it("blocks cancelling once the escrow is funded", async function () {
+      const fixture = await deployFixture();
+      const { buyer, escrow } = fixture;
+
+      await createAndFundEscrow(fixture);
+
+      await expect(escrow.connect(buyer).cancelEscrow(0)).to.be.revertedWith(
+        "Escrow must be unfunded to cancel"
+      );
+    });
+  });
+
+  describe("voteTimeoutResolution", function () {
+    async function openDisputeFixture() {
+      const fixture = await deployFixture();
+      const { buyer, seller, escrow } = fixture;
+
+      await createAndFundEscrow(fixture);
+      await escrow.connect(seller).markDelivered(0);
+      await escrow.connect(buyer).openDispute(0);
+
+      return fixture;
+    }
+
+    it("blocks voting before the dispute timeout elapses", async function () {
+      const { buyer, escrow } = await openDisputeFixture();
+
+      await expect(escrow.connect(buyer).voteTimeoutResolution(0, true)).to.be.revertedWith(
+        "Dispute timeout has not elapsed"
+      );
+    });
+
+    it("blocks non-participants from voting", async function () {
+      const { outsider, escrow } = await openDisputeFixture();
+
+      await time.increase(DISPUTE_TIMEOUT_SECONDS + 1);
+
+      await expect(escrow.connect(outsider).voteTimeoutResolution(0, true)).to.be.revertedWith(
+        "Only escrow participants can call this"
+      );
+    });
+
+    it("does not resolve on a single vote", async function () {
+      const { buyer, escrow } = await openDisputeFixture();
+
+      await time.increase(DISPUTE_TIMEOUT_SECONDS + 1);
+
+      await escrow.connect(buyer).voteTimeoutResolution(0, true);
+
+      const record = await escrow.getEscrow(0);
+      expect(record.state).to.equal(3n);
+    });
+
+    it("does not resolve when buyer and seller disagree", async function () {
+      const { buyer, seller, escrow } = await openDisputeFixture();
+
+      await time.increase(DISPUTE_TIMEOUT_SECONDS + 1);
+
+      await escrow.connect(buyer).voteTimeoutResolution(0, false);
+      await escrow.connect(seller).voteTimeoutResolution(0, true);
+
+      const record = await escrow.getEscrow(0);
+      expect(record.state).to.equal(3n);
+    });
+
+    it("releases funds to the seller when buyer and seller both agree", async function () {
+      const { buyer, seller, usdc, escrow } = await openDisputeFixture();
+
+      await time.increase(DISPUTE_TIMEOUT_SECONDS + 1);
+
+      await escrow.connect(buyer).voteTimeoutResolution(0, true);
+
+      await expect(escrow.connect(seller).voteTimeoutResolution(0, true))
+        .to.emit(escrow, "DisputeResolved")
+        .withArgs(0, ethers.ZeroAddress, seller.address, ESCROW_AMOUNT, true);
+
+      const record = await escrow.getEscrow(0);
+      expect(record.state).to.equal(4n);
+      expect(await usdc.balanceOf(seller.address)).to.equal(ESCROW_AMOUNT);
+    });
+
+    it("refunds the buyer when buyer and seller both agree", async function () {
+      const { buyer, seller, usdc, escrow } = await openDisputeFixture();
+
+      await time.increase(DISPUTE_TIMEOUT_SECONDS + 1);
+
+      await escrow.connect(seller).voteTimeoutResolution(0, false);
+      await escrow.connect(buyer).voteTimeoutResolution(0, false);
+
+      const record = await escrow.getEscrow(0);
+      expect(record.state).to.equal(5n);
+      expect(await usdc.balanceOf(buyer.address)).to.equal(ethers.parseUnits("1000", 6));
+    });
+
+    it("blocks voting once the arbiter has already resolved the dispute", async function () {
+      const { buyer, seller, arbiter, escrow } = await openDisputeFixture();
+
+      await escrow.connect(arbiter).resolveDispute(0, true);
+      await time.increase(DISPUTE_TIMEOUT_SECONDS + 1);
+
+      await expect(escrow.connect(buyer).voteTimeoutResolution(0, true)).to.be.revertedWith(
+        "Escrow is not disputed"
+      );
+    });
   });
 });

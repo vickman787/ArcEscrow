@@ -23,6 +23,8 @@ const ARC_TESTNET = {
   },
 }
 
+const DISPUTE_TIMEOUT_LABEL = '7 days'
+
 const DEFAULT_CONTRACT_ADDRESS =
   import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS?.trim() ||
   '0x657BD86C15911E0ACF6DD1a5fC840647435580A3'
@@ -45,7 +47,11 @@ const ESCROW_MANAGER_ABI = [
   'function sellerRefundBuyer(uint256 escrowId)',
   'function openDispute(uint256 escrowId)',
   'function resolveDispute(uint256 escrowId, bool releaseToSeller)',
-  'function getEscrow(uint256 escrowId) view returns (uint256 id, address buyer, address seller, address arbiter, uint256 amount, uint8 state)',
+  'function cancelEscrow(uint256 escrowId)',
+  'function voteTimeoutResolution(uint256 escrowId, bool releaseToSeller)',
+  'function DISPUTE_TIMEOUT() view returns (uint256)',
+  'function getTimeoutVote(uint256 escrowId) view returns (bool buyerVoted, bool buyerReleaseToSeller, bool sellerVoted, bool sellerReleaseToSeller, uint256 unlocksAt)',
+  'function getEscrow(uint256 escrowId) view returns (uint256 id, address buyer, address seller, address arbiter, uint256 amount, uint8 state, uint256 disputeOpenedAt)',
   'event EscrowCreated(uint256 indexed escrowId, address indexed buyer, address indexed seller, address arbiter, uint256 amount)',
   'event EscrowFunded(uint256 indexed escrowId, address indexed buyer, uint256 amount)',
   'event DeliveryMarked(uint256 indexed escrowId, address indexed seller)',
@@ -53,6 +59,8 @@ const ESCROW_MANAGER_ABI = [
   'event EscrowRefunded(uint256 indexed escrowId, address indexed buyer, uint256 amount)',
   'event DisputeOpened(uint256 indexed escrowId, address indexed openedBy)',
   'event DisputeResolved(uint256 indexed escrowId, address indexed arbiter, address indexed recipient, uint256 amount, bool releasedToSeller)',
+  'event EscrowCancelled(uint256 indexed escrowId, address indexed buyer)',
+  'event TimeoutVoteCast(uint256 indexed escrowId, address indexed voter, bool releaseToSeller)',
 ]
 
 const ERC20_ABI = [
@@ -64,7 +72,7 @@ const ERC20_ABI = [
   'event Approval(address indexed owner, address indexed spender, uint256 value)',
 ]
 
-const escrowStates = ['Created', 'Funded', 'Delivered', 'Disputed', 'Released', 'Refunded']
+const escrowStates = ['Created', 'Funded', 'Delivered', 'Disputed', 'Released', 'Refunded', 'Cancelled']
 const NAV_ITEMS = [
   { id: 'home', label: 'Home' },
   { id: 'seller', label: 'Seller' },
@@ -103,6 +111,7 @@ const DASHBOARD_FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'buyer', label: 'Buyer' },
   { id: 'seller', label: 'Seller' },
+  { id: 'arbiter', label: 'Arbiter' },
   { id: 'active', label: 'Active' },
   { id: 'completed', label: 'Completed' },
 ]
@@ -204,6 +213,7 @@ function buildEscrowRecord(record) {
     arbiter: record.arbiter,
     amount: record.amount,
     state: escrowStates[Number(record.state)] || 'Unknown',
+    disputeOpenedAt: record.disputeOpenedAt ? Number(record.disputeOpenedAt) : 0,
   }
 }
 
@@ -215,6 +225,7 @@ function getEscrowRole(escrow, walletAddress) {
   const normalizedWallet = walletAddress.toLowerCase()
   const isBuyer = escrow.buyer.toLowerCase() === normalizedWallet
   const isSeller = escrow.seller.toLowerCase() === normalizedWallet
+  const isArbiter = escrow.arbiter.toLowerCase() === normalizedWallet
 
   if (isBuyer && isSeller) {
     return 'Buyer & Seller'
@@ -226,6 +237,10 @@ function getEscrowRole(escrow, walletAddress) {
 
   if (isSeller) {
     return 'Seller'
+  }
+
+  if (isArbiter) {
+    return 'Arbiter'
   }
 
   return ''
@@ -248,6 +263,8 @@ function getNextEscrowStep(state) {
     case 'Released':
       return 'Completed'
     case 'Refunded':
+      return 'Closed'
+    case 'Cancelled':
       return 'Closed'
     default:
       return 'Review'
@@ -286,6 +303,10 @@ function getHistoryActionLabel(name) {
       return 'Dispute Opened'
     case 'DisputeResolved':
       return 'Dispute Resolved'
+    case 'EscrowCancelled':
+      return 'Escrow Cancelled'
+    case 'TimeoutVoteCast':
+      return 'Timeout Vote Cast'
     default:
       return name
   }
@@ -513,6 +534,8 @@ function App() {
   const [refundForm, setRefundForm] = useState(initialActionForm)
   const [disputeForm, setDisputeForm] = useState(initialActionForm)
   const [resolveForm, setResolveForm] = useState({ escrowId: '', releaseToSeller: 'seller' })
+  const [cancelForm, setCancelForm] = useState(initialActionForm)
+  const [timeoutVoteForm, setTimeoutVoteForm] = useState({ escrowId: '', releaseToSeller: 'seller' })
   const [lookupId, setLookupId] = useState('')
   const [escrowRecord, setEscrowRecord] = useState(null)
   const [contractBalance, setContractBalance] = useState(null)
@@ -608,6 +631,7 @@ function App() {
     all: visibleMyEscrows.length,
     buyer: visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Buyer')).length,
     seller: visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Seller')).length,
+    arbiter: visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Arbiter')).length,
     active: visibleMyEscrows.filter((escrow) => isActiveEscrowState(escrow.state)).length,
     completed: visibleMyEscrows.filter((escrow) => !isActiveEscrowState(escrow.state)).length,
   }), [activeWalletAddress, visibleMyEscrows])
@@ -617,6 +641,8 @@ function App() {
         return visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Buyer'))
       case 'seller':
         return visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Seller'))
+      case 'arbiter':
+        return visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Arbiter'))
       case 'active':
         return visibleMyEscrows.filter((escrow) => isActiveEscrowState(escrow.state))
       case 'completed':
@@ -633,7 +659,7 @@ function App() {
         id: 'total',
         label: 'Total Escrows',
         value: visibleMyEscrows.length.toString(),
-        helper: 'All buyer and seller escrows tied to this wallet.',
+        helper: 'All buyer, seller, and arbiter escrows tied to this wallet.',
       },
       {
         id: 'active',
@@ -1805,6 +1831,8 @@ function App() {
     setRefundForm({ escrowId })
     setDisputeForm({ escrowId })
     setResolveForm((current) => ({ ...current, escrowId }))
+    setCancelForm({ escrowId })
+    setTimeoutVoteForm((current) => ({ ...current, escrowId }))
   }
 
   const loadMyEscrows = async () => {
@@ -1832,7 +1860,8 @@ function App() {
         .map((record) => buildEscrowRecord(record))
         .filter((escrow) =>
           escrow.buyer.toLowerCase() === normalizedWallet ||
-          escrow.seller.toLowerCase() === normalizedWallet,
+          escrow.seller.toLowerCase() === normalizedWallet ||
+          escrow.arbiter.toLowerCase() === normalizedWallet,
         )
         .sort((left, right) => Number(right.id) - Number(left.id))
 
@@ -1855,7 +1884,7 @@ function App() {
     try {
       setIsHistoryLoading(true)
       const normalizedWallet = activeWalletAddress.toLowerCase()
-      const [approvalEvents, createdEvents, fundedEvents, deliveredEvents, releasedEvents, refundedEvents, disputeOpenedEvents, disputeResolvedEvents] = await Promise.all([
+      const [approvalEvents, createdEvents, fundedEvents, deliveredEvents, releasedEvents, refundedEvents, disputeOpenedEvents, disputeResolvedEvents, cancelledEvents, timeoutVoteEvents] = await Promise.all([
         usdcContract.queryFilter(usdcContract.filters.Approval(activeWalletAddress, contractAddress)),
         escrowContract.queryFilter(escrowContract.filters.EscrowCreated()),
         escrowContract.queryFilter(escrowContract.filters.EscrowFunded()),
@@ -1864,6 +1893,8 @@ function App() {
         escrowContract.queryFilter(escrowContract.filters.EscrowRefunded()),
         escrowContract.queryFilter(escrowContract.filters.DisputeOpened()),
         escrowContract.queryFilter(escrowContract.filters.DisputeResolved()),
+        escrowContract.queryFilter(escrowContract.filters.EscrowCancelled()),
+        escrowContract.queryFilter(escrowContract.filters.TimeoutVoteCast()),
       ])
       const escrowEvents = [
         ...createdEvents,
@@ -1873,6 +1904,8 @@ function App() {
         ...refundedEvents,
         ...disputeOpenedEvents,
         ...disputeResolvedEvents,
+        ...cancelledEvents,
+        ...timeoutVoteEvents,
       ]
       const allEvents = [...approvalEvents, ...escrowEvents]
 
@@ -2864,7 +2897,7 @@ function App() {
               ))}
             </div>
             {!hasConnectedWallet ? (
-              <p className="hint">Connect a wallet to load your buyer and seller escrows.</p>
+              <p className="hint">Connect a wallet to load escrows where you're the buyer, seller, or arbiter.</p>
             ) : isDashboardLoading ? (
               <p className="hint">Loading wallet escrows from the contract...</p>
             ) : filteredMyEscrows.length ? (
@@ -3192,6 +3225,41 @@ function App() {
             onSubmit={(event) => {
               event.preventDefault()
               void runEscrowAction({
+                escrowId: cancelForm.escrowId,
+                browserWork: () => signerContract.cancelEscrow(cancelForm.escrowId),
+                circleFunctionSignature: 'cancelEscrow(uint256)',
+                circleParameters: [cancelForm.escrowId],
+                pendingMessage: 'Open Circle to cancel the unfunded escrow...',
+                successMessage: `Escrow #${cancelForm.escrowId} cancelled.`,
+              })
+            }}
+          >
+            <div className="panel__header">
+              <div>
+                <p className="section-label">Buyer</p>
+                <h3>Cancel unfunded escrow</h3>
+              </div>
+            </div>
+            <label>
+              <span>Escrow ID</span>
+              <input
+                value={cancelForm.escrowId}
+                onChange={(event) => setCancelForm({ escrowId: event.target.value })}
+                inputMode="numeric"
+                placeholder="0"
+              />
+            </label>
+            <p className="hint">Only works while the escrow is still unfunded (Created state). No funds have moved yet.</p>
+            <button type="submit" disabled={isBusy || !canUseActiveWrites || !isCorrectNetwork}>
+              Cancel Escrow
+            </button>
+          </form>
+
+          <form
+            className="panel page-section page-section--manage"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void runEscrowAction({
                 escrowId: fundForm.escrowId,
                 browserWork: () => signerContract.fundEscrow(fundForm.escrowId),
                 circleFunctionSignature: 'fundEscrow(uint256)',
@@ -3367,6 +3435,58 @@ function App() {
             </button>
           </form>
 
+          <form
+            className="panel page-section page-section--manage"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void runEscrowAction({
+                escrowId: timeoutVoteForm.escrowId,
+                browserWork: () =>
+                  signerContract.voteTimeoutResolution(
+                    timeoutVoteForm.escrowId,
+                    timeoutVoteForm.releaseToSeller === 'seller',
+                  ),
+                circleFunctionSignature: 'voteTimeoutResolution(uint256,bool)',
+                circleParameters: [timeoutVoteForm.escrowId, timeoutVoteForm.releaseToSeller === 'seller'],
+                pendingMessage: 'Open Circle to cast your timeout vote...',
+                successMessage: `Timeout vote cast for escrow #${timeoutVoteForm.escrowId}.`,
+              })
+            }}
+          >
+            <div className="panel__header">
+              <div>
+                <p className="section-label">Buyer & Seller</p>
+                <h3>Force resolve after timeout</h3>
+              </div>
+            </div>
+            <label>
+              <span>Escrow ID</span>
+              <input
+                value={timeoutVoteForm.escrowId}
+                onChange={(event) => setTimeoutVoteForm((current) => ({ ...current, escrowId: event.target.value }))}
+                inputMode="numeric"
+                placeholder="0"
+              />
+            </label>
+            <label>
+              <span>Send disputed funds to</span>
+              <select
+                value={timeoutVoteForm.releaseToSeller}
+                onChange={(event) => setTimeoutVoteForm((current) => ({ ...current, releaseToSeller: event.target.value }))}
+              >
+                <option value="seller">Seller</option>
+                <option value="buyer">Buyer</option>
+              </select>
+            </label>
+            <p className="hint">
+              Only usable {DISPUTE_TIMEOUT_LABEL} after a dispute is opened, if the arbiter still hasn't resolved it. Both
+              buyer and seller must vote for the same outcome before funds move.
+            </p>
+            <button type="submit" disabled={isBusy || !canUseActiveWrites || !isCorrectNetwork}>
+              Cast Timeout Vote
+            </button>
+          </form>
+
           <form className="panel page-section page-section--manage" onSubmit={handleLookup}>
             <div className="panel__header">
               <div>
@@ -3464,6 +3584,12 @@ function App() {
                   <span>Amount</span>
                   <strong>{formatTokenAmount(escrowRecord.amount, tokenDecimals)} {tokenSymbol}</strong>
                 </div>
+                {escrowRecord.state === 'Disputed' && escrowRecord.disputeOpenedAt ? (
+                  <div>
+                    <span>Timeout vote unlocks</span>
+                    <strong>{formatTimestamp(escrowRecord.disputeOpenedAt + 7 * 24 * 60 * 60)}</strong>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <p className="hint">Load an escrow ID to inspect buyer, seller, amount, and state.</p>
