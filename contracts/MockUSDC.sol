@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+// TESTNET/LOCAL TEST FIXTURE ONLY. mint() has no access control, so anyone can mint unlimited
+// balance. Only ever deploy this alongside test/hardhat networks - never with production config,
+// and never point a live ArcEscrowManagerV2 deployment at an instance of this contract.
 contract MockUSDC {
     string public constant name = "Mock USDC";
     string public constant symbol = "USDC";

@@ -117,6 +117,11 @@ const DASHBOARD_FILTERS = [
 ]
 
 const CIRCLE_SESSION_STORAGE_KEY = 'arc-escrow-circle-session'
+// Circle's userToken/encryptionKey/refreshToken are stored in localStorage (there's no backend
+// session store in this app), so an XSS could read them. There's no shorter-lived alternative
+// available without server-side sessions, so we bound the exposure window instead: the stored
+// session is treated as stale and discarded after this long, forcing a fresh login.
+const CIRCLE_SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000
 const CIRCLE_WALLETS_STORAGE_KEY = 'arc-escrow-circle-wallets'
 const CIRCLE_BALANCE_STORAGE_KEY = 'arc-escrow-circle-balance'
 const WALLET_MODE_STORAGE_KEY = 'arc-escrow-wallet-mode'
@@ -824,6 +829,7 @@ function App() {
           userToken: result.userToken,
           encryptionKey: result.encryptionKey,
           refreshToken: result.refreshToken,
+          establishedAt: Date.now(),
         }
 
         setError('')
@@ -1459,7 +1465,14 @@ function App() {
 
     if (storedCircleSession) {
       try {
-        setCircleSession(JSON.parse(storedCircleSession))
+        const parsedSession = JSON.parse(storedCircleSession)
+        const age = Date.now() - (parsedSession.establishedAt || 0)
+
+        if (age > CIRCLE_SESSION_MAX_AGE_MS) {
+          window.localStorage.removeItem(CIRCLE_SESSION_STORAGE_KEY)
+        } else {
+          setCircleSession(parsedSession)
+        }
       } catch {
         window.localStorage.removeItem(CIRCLE_SESSION_STORAGE_KEY)
       }
