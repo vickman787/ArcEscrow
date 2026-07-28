@@ -63,7 +63,7 @@ const ESCROW_MANAGER_ABI = [
   'function DISPUTE_TIMEOUT() view returns (uint256)',
   'function getTimeoutVote(uint256 escrowId) view returns (bool buyerVoted, bool buyerReleaseToSeller, bool sellerVoted, bool sellerReleaseToSeller, uint256 unlocksAt)',
   'function getEscrow(uint256 escrowId) view returns (uint256 id, address buyer, address seller, address arbiter, uint256 amount, uint8 state, uint256 disputeOpenedAt)',
-  'event EscrowCreated(uint256 indexed escrowId, address indexed buyer, address indexed seller, address arbiter, uint256 amount)',
+  'event EscrowCreated(uint256 indexed escrowId, address buyer, address indexed seller, address indexed arbiter, uint256 amount)',
   'event EscrowFunded(uint256 indexed escrowId, address indexed buyer, uint256 amount)',
   'event DeliveryMarked(uint256 indexed escrowId, address indexed seller)',
   'event EscrowReleased(uint256 indexed escrowId, address indexed seller, uint256 amount)',
@@ -353,6 +353,8 @@ function App() {
   const [resolveForm, setResolveForm] = useState({ escrowId: '', releaseToSeller: 'seller' })
   const [cancelForm, setCancelForm] = useState(initialActionForm)
   const [timeoutVoteForm, setTimeoutVoteForm] = useState({ escrowId: '', releaseToSeller: 'seller' })
+  const [timeoutVoteStatus, setTimeoutVoteStatus] = useState(null)
+  const [isTimeoutVoteStatusLoading, setIsTimeoutVoteStatusLoading] = useState(false)
   const [lookupId, setLookupId] = useState('')
   const [escrowRecord, setEscrowRecord] = useState(null)
   const [contractBalance, setContractBalance] = useState(null)
@@ -2021,6 +2023,38 @@ function App() {
     })
   }
 
+  const handleCheckTimeoutVoteStatus = async () => {
+    const targetEscrowId = timeoutVoteForm.escrowId.trim()
+
+    if (!targetEscrowId) {
+      setError('Enter an escrow ID first.')
+      return
+    }
+
+    if (!escrowContract) {
+      setError('Connect a wallet or set a valid contract address first.')
+      return
+    }
+
+    try {
+      setIsTimeoutVoteStatusLoading(true)
+      setError('')
+      const status = await escrowContract.getTimeoutVote(targetEscrowId)
+      setTimeoutVoteStatus({
+        buyerVoted: status.buyerVoted,
+        buyerReleaseToSeller: status.buyerReleaseToSeller,
+        sellerVoted: status.sellerVoted,
+        sellerReleaseToSeller: status.sellerReleaseToSeller,
+        unlocksAt: Number(status.unlocksAt),
+      })
+    } catch (statusError) {
+      setDisplayError(setError, statusError)
+      setTimeoutVoteStatus(null)
+    } finally {
+      setIsTimeoutVoteStatusLoading(false)
+    }
+  }
+
   const connectWallet = async () => {
     if (!window.ethereum) {
       setError('No injected wallet found. Install MetaMask or another EVM wallet.')
@@ -3381,7 +3415,7 @@ function App() {
                 circleParameters: [timeoutVoteForm.escrowId, timeoutVoteForm.releaseToSeller === 'seller'],
                 pendingMessage: 'Open Circle to cast your timeout vote...',
                 successMessage: `Timeout vote cast for escrow #${timeoutVoteForm.escrowId}.`,
-              })
+              }).then(() => handleCheckTimeoutVoteStatus())
             }}
           >
             <div className="panel__header">
@@ -3394,7 +3428,10 @@ function App() {
               <span>Escrow ID</span>
               <input
                 value={timeoutVoteForm.escrowId}
-                onChange={(event) => setTimeoutVoteForm((current) => ({ ...current, escrowId: event.target.value }))}
+                onChange={(event) => {
+                  setTimeoutVoteForm((current) => ({ ...current, escrowId: event.target.value }))
+                  setTimeoutVoteStatus(null)
+                }}
                 inputMode="numeric"
                 placeholder="0"
               />
@@ -3413,6 +3450,34 @@ function App() {
               Only usable {DISPUTE_TIMEOUT_LABEL} after a dispute is opened, if the arbiter still hasn't resolved it. Both
               buyer and seller must vote for the same outcome before funds move.
             </p>
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={isTimeoutVoteStatusLoading || !timeoutVoteForm.escrowId.trim()}
+              onClick={handleCheckTimeoutVoteStatus}
+            >
+              {isTimeoutVoteStatusLoading ? 'Checking...' : 'Check Current Votes'}
+            </button>
+            {timeoutVoteStatus ? (
+              <p className="inline-note">
+                Buyer voted:{' '}
+                {timeoutVoteStatus.buyerVoted
+                  ? timeoutVoteStatus.buyerReleaseToSeller
+                    ? 'Release to seller'
+                    : 'Refund buyer'
+                  : 'Not yet'}
+                {' · '}
+                Seller voted:{' '}
+                {timeoutVoteStatus.sellerVoted
+                  ? timeoutVoteStatus.sellerReleaseToSeller
+                    ? 'Release to seller'
+                    : 'Refund buyer'
+                  : 'Not yet'}
+                {timeoutVoteStatus.unlocksAt ? (
+                  <> · Unlocks {formatTimestamp(timeoutVoteStatus.unlocksAt)}</>
+                ) : null}
+              </p>
+            ) : null}
             <button type="submit" disabled={isBusy || !canUseActiveWrites || !isCorrectNetwork}>
               Cast Timeout Vote
             </button>

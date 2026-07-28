@@ -48,6 +48,20 @@ describe("ArcEscrowManagerV2", function () {
     expect(record.state).to.equal(0n);
   });
 
+  it("indexes arbiter in EscrowCreated so events are filterable by arbiter", async function () {
+    const { buyer, seller, arbiter, escrow } = await deployFixture();
+    const [, , , , otherArbiter] = await ethers.getSigners();
+
+    await escrow.connect(buyer).createEscrow(seller.address, arbiter.address, ESCROW_AMOUNT);
+    await escrow.connect(buyer).createEscrow(seller.address, otherArbiter.address, ESCROW_AMOUNT);
+
+    const events = await escrow.queryFilter(escrow.filters.EscrowCreated(null, null, null, arbiter.address));
+
+    expect(events).to.have.lengthOf(1);
+    expect(events[0].args.escrowId).to.equal(0n);
+    expect(events[0].args.arbiter).to.equal(arbiter.address);
+  });
+
   it("funds an escrow with approved USDC", async function () {
     const fixture = await deployFixture();
     const { buyer, seller, arbiter, usdc, escrow } = fixture;

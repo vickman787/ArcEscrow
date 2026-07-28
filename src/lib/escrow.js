@@ -2,13 +2,13 @@ import { ethers } from 'ethers'
 
 export const DEFAULT_CONTRACT_ADDRESS =
   import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS?.trim() ||
-  '0x4A7f48d5C5f68Edd0D7b5aB5775E87Bb757f3648'
+  '0x0D7B925BaFE6E197Cd168A31100a282fF8Ab89F2'
 
 const DISMISSED_ESCROWS_STORAGE_PREFIX = 'arc-escrow-dismissed-escrows'
 const FALLBACK_VOLUME_LOOKBACK_BLOCKS = 5_000_000
 // Deployment block of DEFAULT_CONTRACT_ADDRESS above - update this alongside that address on every
 // redeploy, or the volume scan will waste RPC calls scanning blocks before the contract existed.
-const DEFAULT_VOLUME_START_BLOCK = 53_913_124
+const DEFAULT_VOLUME_START_BLOCK = 54_061_860
 
 const escrowStates = ['Created', 'Funded', 'Delivered', 'Disputed', 'Released', 'Refunded', 'Cancelled']
 

@@ -45,9 +45,9 @@ contract ArcEscrowManagerV2 {
 
     event EscrowCreated(
         uint256 indexed escrowId,
-        address indexed buyer,
+        address buyer,
         address indexed seller,
-        address arbiter,
+        address indexed arbiter,
         uint256 amount
     );
     event EscrowFunded(uint256 indexed escrowId, address indexed buyer, uint256 amount);
@@ -132,10 +132,10 @@ contract ArcEscrowManagerV2 {
         Escrow storage escrow = escrows[escrowId];
         require(escrow.state == EscrowState.Created, "Escrow is not in Created state");
 
+        escrow.state = EscrowState.Funded;
+
         bool success = IERC20(usdc).transferFrom(msg.sender, address(this), escrow.amount);
         require(success, "USDC transfer failed");
-
-        escrow.state = EscrowState.Funded;
 
         emit EscrowFunded(escrowId, msg.sender, escrow.amount);
     }

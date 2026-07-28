@@ -10,6 +10,21 @@ export default defineConfig(({ mode }) => {
   const ogImageUrl = appUrl ? `${appUrl}/og-preview.png` : '/og-preview.png'
 
   return {
+    build: {
+      // The Circle Wallet SDK (dynamically imported, only fetched when a user opens Circle
+      // login) pulls in Firebase and is legitimately over 1MB - it never blocks initial page
+      // load, so raise the warning threshold instead of chasing an unreachable target. The
+      // react/ethers/app chunks below stay well under this and will still warn if they regress.
+      chunkSizeWarningLimit: 1200,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ['react', 'react-dom'],
+            ethers: ['ethers'],
+          },
+        },
+      },
+    },
     plugins: [
       nodePolyfills(),
       react(),
