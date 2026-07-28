@@ -5,6 +5,7 @@ export const DEFAULT_CONTRACT_ADDRESS =
   '0x0D7B925BaFE6E197Cd168A31100a282fF8Ab89F2'
 
 const DISMISSED_ESCROWS_STORAGE_PREFIX = 'arc-escrow-dismissed-escrows'
+const LOG_QUERY_BLOCK_SPAN = 9999
 const FALLBACK_VOLUME_LOOKBACK_BLOCKS = 5_000_000
 // Deployment block of DEFAULT_CONTRACT_ADDRESS above - update this alongside that address on every
 // redeploy, or the volume scan will waste RPC calls scanning blocks before the contract existed.
@@ -50,6 +51,49 @@ export function getDismissedEscrowsStorageKey(contractAddress, walletAddress) {
   }
 
   return `${DISMISSED_ESCROWS_STORAGE_PREFIX}:${contractAddress.toLowerCase()}:${walletAddress.toLowerCase()}`
+}
+
+export async function queryEventsInChunks(contract, filter, fromBlock, toBlock) {
+  const events = []
+
+  for (let from = fromBlock; from <= toBlock; from += LOG_QUERY_BLOCK_SPAN + 1) {
+    const to = Math.min(from + LOG_QUERY_BLOCK_SPAN, toBlock)
+    events.push(...await contract.queryFilter(filter, from, to))
+  }
+
+  return events
+}
+
+export function buildTrendPath(points, width, height, padding) {
+  if (!points.length) {
+    return ''
+  }
+
+  const innerWidth = width - padding.left - padding.right
+  const innerHeight = height - padding.top - padding.bottom
+  const maxValue = Math.max(...points.map((point) => point.value), 1)
+  const stepX = points.length > 1 ? innerWidth / (points.length - 1) : 0
+
+  const coordinates = points.map((point, index) => {
+    const x = padding.left + stepX * index
+    const normalized = point.value / maxValue
+    const y = padding.top + innerHeight - normalized * innerHeight
+    return { x, y }
+  })
+
+  if (coordinates.length === 1) {
+    return `M ${coordinates[0].x} ${coordinates[0].y}`
+  }
+
+  return coordinates.reduce((path, point, index) => {
+    if (index === 0) {
+      return `M ${point.x} ${point.y}`
+    }
+
+    const previous = coordinates[index - 1]
+    const controlX = (previous.x + point.x) / 2
+    return `${path} C ${controlX} ${previous.y}, ${controlX} ${point.y}, ${point.x} ${point.y}`
+  }, '')
 }
 
 export function buildEscrowRecord(record) {
@@ -157,6 +201,12 @@ export function getDisplayError(error) {
   }
 
   return message
+}
+
+export function setDisplayError(setError, error) {
+  const message = getDisplayError(error)
+
+  setError(message)
 }
 
 export function getCreateFormError({ seller, arbiter, amount, walletAddress, tokenDecimals }) {

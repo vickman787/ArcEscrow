@@ -14,16 +14,14 @@ import {
   buildEscrowRecord,
   formatTokenAmount,
   getCreateFormError,
-  getDismissedEscrowsStorageKey,
-  getDisplayError,
   getEscrowRole,
   getEscrowVolumeStartBlock,
-  getHistoryActionLabel,
   getNextEscrowStep,
-  isActiveEscrowState,
-  isTerminalEscrowState,
+  queryEventsInChunks,
+  setDisplayError,
   shortenAddress,
 } from './lib/escrow'
+import { useEscrowDashboard } from './hooks/useEscrowDashboard'
 
 const ARC_TESTNET = {
   chainId: 5042002,
@@ -135,7 +133,6 @@ const CIRCLE_SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000
 const CIRCLE_WALLETS_STORAGE_KEY = 'arc-escrow-circle-wallets'
 const CIRCLE_BALANCE_STORAGE_KEY = 'arc-escrow-circle-balance'
 const WALLET_MODE_STORAGE_KEY = 'arc-escrow-wallet-mode'
-const LOG_QUERY_BLOCK_SPAN = 9999
 
 function getInitialTheme() {
   if (typeof window === 'undefined') {
@@ -152,17 +149,6 @@ function getInitialTheme() {
 
 function getExplorerUrl(path) {
   return `${ARC_TESTNET.blockExplorerUrl}${path}`
-}
-
-async function queryEventsInChunks(contract, filter, fromBlock, toBlock) {
-  const events = []
-
-  for (let from = fromBlock; from <= toBlock; from += LOG_QUERY_BLOCK_SPAN + 1) {
-    const to = Math.min(from + LOG_QUERY_BLOCK_SPAN, toBlock)
-    events.push(...await contract.queryFilter(filter, from, to))
-  }
-
-  return events
 }
 
 function sumEventAmounts(events) {
@@ -191,12 +177,6 @@ function formatTimestamp(timestamp) {
     hour: 'numeric',
     minute: '2-digit',
   })
-}
-
-function setDisplayError(setError, error) {
-  const message = getDisplayError(error)
-
-  setError(message)
 }
 
 function wait(ms) {
@@ -233,38 +213,6 @@ function renderWalletOptionIcon(icon) {
         </svg>
       )
   }
-}
-
-function buildTrendPath(points, width, height, padding) {
-  if (!points.length) {
-    return ''
-  }
-
-  const innerWidth = width - padding.left - padding.right
-  const innerHeight = height - padding.top - padding.bottom
-  const maxValue = Math.max(...points.map((point) => point.value), 1)
-  const stepX = points.length > 1 ? innerWidth / (points.length - 1) : 0
-
-  const coordinates = points.map((point, index) => {
-    const x = padding.left + stepX * index
-    const normalized = point.value / maxValue
-    const y = padding.top + innerHeight - normalized * innerHeight
-    return { x, y }
-  })
-
-  if (coordinates.length === 1) {
-    return `M ${coordinates[0].x} ${coordinates[0].y}`
-  }
-
-  return coordinates.reduce((path, point, index) => {
-    if (index === 0) {
-      return `M ${point.x} ${point.y}`
-    }
-
-    const previous = coordinates[index - 1]
-    const controlX = (previous.x + point.x) / 2
-    return `${path} C ${controlX} ${previous.y}, ${controlX} ${point.y}, ${point.x} ${point.y}`
-  }, '')
 }
 
 function buildListingLink({ seller, arbiter, amount, title, description }) {
@@ -366,12 +314,6 @@ function App() {
   const [escrowVolumeBlock, setEscrowVolumeBlock] = useState(null)
   const [isEscrowVolumeLoading, setIsEscrowVolumeLoading] = useState(false)
   const [allowance, setAllowance] = useState(null)
-  const [myEscrows, setMyEscrows] = useState([])
-  const [dismissedEscrowIds, setDismissedEscrowIds] = useState([])
-  const [dashboardFilter, setDashboardFilter] = useState('all')
-  const [isDashboardLoading, setIsDashboardLoading] = useState(false)
-  const [transactionHistory, setTransactionHistory] = useState([])
-  const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [status, setStatus] = useState('Connect a wallet on Arc Network to start using your escrow contract.')
   const [error, setError] = useState('')
   const [isBusy, setIsBusy] = useState(false)
@@ -395,7 +337,6 @@ function App() {
   const [circleWalletBalance, setCircleWalletBalance] = useState(null)
   const circleSdkRef = useRef(null)
   const circleLoginFlowRef = useRef(false)
-  const escrowRecordCacheRef = useRef(new Map())
   const [theme, setTheme] = useState(getInitialTheme)
   const isCircleConfigured = hasCircleAppId()
   const circlePrimaryWallet = pickArcWallet(circleWallets)
@@ -438,139 +379,6 @@ function App() {
     walletAddress: activeWalletAddress,
     tokenDecimals,
   })
-  const visibleMyEscrows = useMemo(() => {
-    if (!dismissedEscrowIds.length) {
-      return myEscrows
-    }
-
-    const dismissedIds = new Set(dismissedEscrowIds)
-    return myEscrows.filter((escrow) => !dismissedIds.has(escrow.id))
-  }, [dismissedEscrowIds, myEscrows])
-  const dashboardCounts = useMemo(() => ({
-    all: visibleMyEscrows.length,
-    buyer: visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Buyer')).length,
-    seller: visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Seller')).length,
-    arbiter: visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Arbiter')).length,
-    active: visibleMyEscrows.filter((escrow) => isActiveEscrowState(escrow.state)).length,
-    completed: visibleMyEscrows.filter((escrow) => !isActiveEscrowState(escrow.state)).length,
-  }), [activeWalletAddress, visibleMyEscrows])
-  const filteredMyEscrows = useMemo(() => {
-    switch (dashboardFilter) {
-      case 'buyer':
-        return visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Buyer'))
-      case 'seller':
-        return visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Seller'))
-      case 'arbiter':
-        return visibleMyEscrows.filter((escrow) => getEscrowRole(escrow, activeWalletAddress).includes('Arbiter'))
-      case 'active':
-        return visibleMyEscrows.filter((escrow) => isActiveEscrowState(escrow.state))
-      case 'completed':
-        return visibleMyEscrows.filter((escrow) => !isActiveEscrowState(escrow.state))
-      default:
-        return visibleMyEscrows
-    }
-  }, [activeWalletAddress, dashboardFilter, visibleMyEscrows])
-  const dashboardSummary = useMemo(() => {
-    const totalVolume = visibleMyEscrows.reduce((sum, escrow) => sum + escrow.amount, 0n)
-
-    return [
-      {
-        id: 'total',
-        label: 'Total Escrows',
-        value: visibleMyEscrows.length.toString(),
-        helper: 'All buyer, seller, and arbiter escrows tied to this wallet.',
-      },
-      {
-        id: 'active',
-        label: 'Active',
-        value: dashboardCounts.active.toString(),
-        helper: 'Escrows still waiting for funding or settlement.',
-      },
-      {
-        id: 'completed',
-        label: 'Completed',
-        value: dashboardCounts.completed.toString(),
-        helper: 'Released or refunded escrows already closed.',
-      },
-      {
-        id: 'volume',
-        label: `Total Volume (${tokenSymbol})`,
-        value: formatTokenAmount(totalVolume, tokenDecimals),
-        helper: 'Combined escrow amount across your loaded records.',
-      },
-      {
-        id: 'contract-balance',
-        label: `Contract Balance (${tokenSymbol})`,
-        value: contractBalance == null ? '--' : formatTokenAmount(contractBalance, tokenDecimals),
-        helper: 'Total USDC currently held by the escrow contract across all users.',
-      },
-    ]
-  }, [contractBalance, dashboardCounts.active, dashboardCounts.completed, tokenDecimals, tokenSymbol, visibleMyEscrows])
-  const recentEscrows = useMemo(() => visibleMyEscrows.slice(0, 5), [visibleMyEscrows])
-  const walletTrend = useMemo(() => {
-    const formatter = new Intl.DateTimeFormat(undefined, { weekday: 'short' })
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    const buckets = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(today)
-      date.setDate(today.getDate() - (6 - index))
-      return {
-        key: date.toISOString().slice(0, 10),
-        label: formatter.format(date),
-        value: 0,
-        volume: 0,
-        count: 0,
-      }
-    })
-
-    const volumeActions = new Set(['Escrow Funded', 'Funds Released', 'Buyer Refunded'])
-
-    transactionHistory.forEach((entry) => {
-      if (!entry.timestamp) {
-        return
-      }
-
-      const entryDate = new Date(entry.timestamp * 1000)
-      entryDate.setHours(0, 0, 0, 0)
-      const bucketKey = entryDate.toISOString().slice(0, 10)
-      const bucket = buckets.find((item) => item.key === bucketKey)
-
-      if (!bucket) {
-        return
-      }
-
-      bucket.count += 1
-
-      if (volumeActions.has(entry.action)) {
-        bucket.volume += Number(ethers.formatUnits(entry.amount ?? 0n, tokenDecimals))
-      }
-    })
-
-    const hasVolumeData = buckets.some((bucket) => bucket.volume > 0)
-    const hasAnyActivity = buckets.some((bucket) => bucket.count > 0)
-
-    buckets.forEach((bucket) => {
-      bucket.value = hasVolumeData ? bucket.volume : bucket.count
-    })
-
-    const path = buildTrendPath(buckets, 480, 220, {
-      top: 18,
-      right: 14,
-      bottom: 24,
-      left: 14,
-    })
-
-    return {
-      buckets,
-      path,
-      hasData: hasAnyActivity,
-      isVolumeBased: hasVolumeData,
-      total: buckets.reduce((sum, bucket) => sum + bucket.value, 0),
-      peak: Math.max(...buckets.map((bucket) => bucket.value), 0),
-    }
-  }, [tokenDecimals, transactionHistory])
-
   const escrowContract = useMemo(() => {
     const readProvider = provider || publicProvider
 
@@ -610,6 +418,69 @@ function App() {
   const canUseBrowserApprovals = Boolean(signerUsdcContract)
   const canUseActiveWrites = walletMode === 'circle' ? canUseCircleWrites : canUseBrowserWrites
   const canUseActiveApprovals = walletMode === 'circle' ? canUseCircleWrites : canUseBrowserApprovals
+
+  const {
+    myEscrows,
+    visibleMyEscrows,
+    dashboardCounts,
+    filteredMyEscrows,
+    recentEscrows,
+    walletTrend,
+    dashboardFilter,
+    setDashboardFilter,
+    isDashboardLoading,
+    isHistoryLoading,
+    dismissEscrowId,
+    loadMyEscrows,
+    loadTransactionHistory,
+  } = useEscrowDashboard({
+    escrowContract,
+    usdcContract,
+    activeWalletAddress,
+    contractAddress,
+    activePage,
+    provider,
+    publicProvider,
+    tokenDecimals,
+    setError,
+  })
+
+  const dashboardSummary = useMemo(() => {
+    const totalVolume = visibleMyEscrows.reduce((sum, escrow) => sum + escrow.amount, 0n)
+
+    return [
+      {
+        id: 'total',
+        label: 'Total Escrows',
+        value: visibleMyEscrows.length.toString(),
+        helper: 'All buyer, seller, and arbiter escrows tied to this wallet.',
+      },
+      {
+        id: 'active',
+        label: 'Active',
+        value: dashboardCounts.active.toString(),
+        helper: 'Escrows still waiting for funding or settlement.',
+      },
+      {
+        id: 'completed',
+        label: 'Completed',
+        value: dashboardCounts.completed.toString(),
+        helper: 'Released or refunded escrows already closed.',
+      },
+      {
+        id: 'volume',
+        label: `Total Volume (${tokenSymbol})`,
+        value: formatTokenAmount(totalVolume, tokenDecimals),
+        helper: 'Combined escrow amount across your loaded records.',
+      },
+      {
+        id: 'contract-balance',
+        label: `Contract Balance (${tokenSymbol})`,
+        value: contractBalance == null ? '--' : formatTokenAmount(contractBalance, tokenDecimals),
+        helper: 'Total USDC currently held by the escrow contract across all users.',
+      },
+    ]
+  }, [contractBalance, dashboardCounts.active, dashboardCounts.completed, tokenDecimals, tokenSymbol, visibleMyEscrows])
 
   const syncCircleSdk = async ({
     nextDeviceToken = circleDeviceToken,
@@ -1422,52 +1293,6 @@ function App() {
   }, [activeWalletAddress])
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    const storageKey = getDismissedEscrowsStorageKey(contractAddress, activeWalletAddress)
-
-    if (!storageKey) {
-      setDismissedEscrowIds([])
-      return
-    }
-
-    const storedIds = window.localStorage.getItem(storageKey)
-
-    if (!storedIds) {
-      setDismissedEscrowIds([])
-      return
-    }
-
-    try {
-      const parsedIds = JSON.parse(storedIds)
-      setDismissedEscrowIds(Array.isArray(parsedIds) ? parsedIds.map(String) : [])
-    } catch {
-      window.localStorage.removeItem(storageKey)
-      setDismissedEscrowIds([])
-    }
-  }, [activeWalletAddress, contractAddress])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    const storageKey = getDismissedEscrowsStorageKey(contractAddress, activeWalletAddress)
-
-    if (!storageKey) {
-      return
-    }
-
-    if (dismissedEscrowIds.length) {
-      window.localStorage.setItem(storageKey, JSON.stringify(dismissedEscrowIds))
-    } else {
-      window.localStorage.removeItem(storageKey)
-    }
-  }, [activeWalletAddress, contractAddress, dismissedEscrowIds])
-
-  useEffect(() => {
     const loadContracts = async () => {
       if (!escrowContract) {
         setContractBalance(null)
@@ -1620,223 +1445,6 @@ function App() {
         setDisplayError(setError, walletError)
       })
   }, [activeWalletAddress, usdcContract, contractAddress, isBusy])
-
-  const loadMyEscrows = async () => {
-    if (!escrowContract || !activeWalletAddress) {
-      setMyEscrows([])
-      return
-    }
-
-    try {
-      setIsDashboardLoading(true)
-      const nextEscrowId = await escrowContract.nextEscrowId()
-      const totalEscrows = Number(nextEscrowId)
-
-      if (!totalEscrows) {
-        setMyEscrows([])
-        return
-      }
-
-      const escrowIndexes = Array.from({ length: totalEscrows }, (_, index) => index)
-      const cache = escrowRecordCacheRef.current
-      const getCacheKey = (escrowId) => `${contractAddress.toLowerCase()}:${escrowId}`
-      const idsToFetch = escrowIndexes.filter((escrowId) => !cache.has(getCacheKey(escrowId)))
-
-      const freshRecords = await Promise.all(
-        idsToFetch.map((escrowId) => escrowContract.getEscrow(escrowId)),
-      )
-      const freshByEscrowId = new Map()
-
-      idsToFetch.forEach((escrowId, index) => {
-        const escrow = buildEscrowRecord(freshRecords[index])
-        freshByEscrowId.set(escrowId, escrow)
-
-        // Only cache terminal states forever - Created/Funded/Delivered/Disputed can still change.
-        if (isTerminalEscrowState(escrow.state)) {
-          cache.set(getCacheKey(escrowId), escrow)
-        }
-      })
-
-      const normalizedWallet = activeWalletAddress.toLowerCase()
-      const walletEscrows = escrowIndexes
-        .map((escrowId) => cache.get(getCacheKey(escrowId)) || freshByEscrowId.get(escrowId))
-        .filter((escrow) =>
-          escrow.buyer.toLowerCase() === normalizedWallet ||
-          escrow.seller.toLowerCase() === normalizedWallet ||
-          escrow.arbiter.toLowerCase() === normalizedWallet,
-        )
-        .sort((left, right) => Number(right.id) - Number(left.id))
-
-      setMyEscrows(walletEscrows)
-    } catch (dashboardError) {
-      setDisplayError(setError, dashboardError)
-    } finally {
-      setIsDashboardLoading(false)
-    }
-  }
-
-  const loadTransactionHistory = async () => {
-    const readProvider = provider || publicProvider
-
-    if (!escrowContract || !readProvider || !activeWalletAddress || !usdcContract) {
-      setTransactionHistory([])
-      return
-    }
-
-    try {
-      setIsHistoryLoading(true)
-      const normalizedWallet = activeWalletAddress.toLowerCase()
-      const latestBlock = await readProvider.getBlockNumber()
-      const fromBlock = getEscrowVolumeStartBlock(contractAddress, latestBlock)
-      const [approvalEvents, createdEvents, fundedEvents, deliveredEvents, releasedEvents, refundedEvents, disputeOpenedEvents, disputeResolvedEvents, cancelledEvents, timeoutVoteEvents] = await Promise.all([
-        queryEventsInChunks(usdcContract, usdcContract.filters.Approval(activeWalletAddress, contractAddress), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowCreated(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowFunded(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.DeliveryMarked(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowReleased(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowRefunded(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.DisputeOpened(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.DisputeResolved(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowCancelled(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.TimeoutVoteCast(), fromBlock, latestBlock),
-      ])
-      const escrowEvents = [
-        ...createdEvents,
-        ...fundedEvents,
-        ...deliveredEvents,
-        ...releasedEvents,
-        ...refundedEvents,
-        ...disputeOpenedEvents,
-        ...disputeResolvedEvents,
-        ...cancelledEvents,
-        ...timeoutVoteEvents,
-      ]
-      const allEvents = [...approvalEvents, ...escrowEvents]
-
-      if (!allEvents.length) {
-        setTransactionHistory([])
-        return
-      }
-
-      const uniqueEscrowIds = [
-        ...new Set(escrowEvents.map((event) => event.args?.escrowId?.toString()).filter(Boolean)),
-      ]
-      const escrowRecords = uniqueEscrowIds.length
-        ? await Promise.all(
-            uniqueEscrowIds.map(async (escrowId) => [escrowId, buildEscrowRecord(await escrowContract.getEscrow(escrowId))]),
-          )
-        : []
-      const escrowMap = new Map(escrowRecords)
-
-      const filteredEvents = allEvents.filter((event) => {
-        if (event.fragment.name === 'Approval') {
-          return (
-            event.args?.owner?.toLowerCase() === normalizedWallet &&
-            event.args?.spender?.toLowerCase() === contractAddress.toLowerCase()
-          )
-        }
-
-        const escrowId = event.args?.escrowId?.toString()
-        const record = escrowMap.get(escrowId)
-
-        if (!record) {
-          return false
-        }
-
-        return (
-          record.buyer.toLowerCase() === normalizedWallet ||
-          record.seller.toLowerCase() === normalizedWallet ||
-          record.arbiter.toLowerCase() === normalizedWallet
-        )
-      })
-
-      if (!filteredEvents.length) {
-        setTransactionHistory([])
-        return
-      }
-
-      const uniqueBlockNumbers = [...new Set(filteredEvents.map((event) => event.blockNumber))]
-      const blocks = await Promise.all(
-        uniqueBlockNumbers.map(async (blockNumber) => [blockNumber, await readProvider.getBlock(blockNumber)]),
-      )
-      const blockMap = new Map(blocks)
-
-      const nextHistory = filteredEvents
-        .map((event) => {
-          if (event.fragment.name === 'Approval') {
-            const block = blockMap.get(event.blockNumber)
-
-            return {
-              id: `${event.transactionHash}-${event.index ?? 0}`,
-              escrowId: '--',
-              action: getHistoryActionLabel(event.fragment.name),
-              amount: event.args?.value ?? 0n,
-              state: 'Allowance',
-              txHash: event.transactionHash,
-              timestamp: block?.timestamp ?? null,
-              actor: 'You',
-            }
-          }
-
-          const escrowId = event.args?.escrowId?.toString()
-          const record = escrowMap.get(escrowId)
-          const block = blockMap.get(event.blockNumber)
-
-          return {
-            id: `${event.transactionHash}-${event.index ?? 0}`,
-            escrowId,
-            action: getHistoryActionLabel(event.fragment.name),
-            amount: record?.amount ?? event.args?.amount ?? 0n,
-            state: record?.state ?? 'Unknown',
-            txHash: event.transactionHash,
-            timestamp: block?.timestamp ?? null,
-            actor: (() => {
-              if (record?.buyer.toLowerCase() === normalizedWallet) {
-                return 'You'
-              }
-              if (record?.seller.toLowerCase() === normalizedWallet) {
-                return 'You'
-              }
-              if (record?.arbiter.toLowerCase() === normalizedWallet) {
-                return 'You'
-              }
-              return shortenAddress(event.args?.buyer || event.args?.seller || event.args?.arbiter || '')
-            })(),
-          }
-        })
-        .sort((left, right) => (right.timestamp ?? 0) - (left.timestamp ?? 0))
-
-      setTransactionHistory(nextHistory)
-    } catch (historyError) {
-      setDisplayError(setError, historyError)
-    } finally {
-      setIsHistoryLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    if (!activeWalletAddress || !escrowContract || (activePage !== 'manage' && activePage !== 'home')) {
-      if (!activeWalletAddress) {
-        setMyEscrows([])
-      }
-
-      return
-    }
-
-    loadMyEscrows()
-  }, [activeWalletAddress, escrowContract, activePage])
-
-  useEffect(() => {
-    if (!activeWalletAddress || !escrowContract || !(provider || publicProvider) || (activePage !== 'manage' && activePage !== 'home')) {
-      if (!activeWalletAddress) {
-        setTransactionHistory([])
-      }
-
-      return
-    }
-
-    loadTransactionHistory()
-  }, [activeWalletAddress, escrowContract, provider, publicProvider, activePage])
 
   const refreshEscrow = async (escrowId) => {
     if (!escrowContract) {
@@ -2512,9 +2120,7 @@ function App() {
   }
 
   const handleDismissDashboardEscrow = (escrow) => {
-    setDismissedEscrowIds((current) => (
-      current.includes(escrow.id) ? current : [...current, escrow.id]
-    ))
+    dismissEscrowId(escrow.id)
 
     if (escrowRecord?.id === escrow.id) {
       setEscrowRecord(null)
