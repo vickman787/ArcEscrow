@@ -21,6 +21,7 @@ import {
   setDisplayError,
   shortenAddress,
 } from './lib/escrow'
+import { useBrowserWallet } from './hooks/useBrowserWallet'
 import { useEscrowDashboard } from './hooks/useEscrowDashboard'
 
 const ARC_TESTNET = {
@@ -283,11 +284,16 @@ function getInitialPage() {
 }
 
 function App() {
-  const [provider, setProvider] = useState(null)
-  const [signer, setSigner] = useState(null)
-  const [walletAddress, setWalletAddress] = useState('')
-  const [chainId, setChainId] = useState('')
   const [walletMode, setWalletMode] = useState(null)
+  const {
+    provider,
+    signer,
+    walletAddress,
+    chainId,
+    connectBrowserWallet,
+    refreshBrowserWalletConnection,
+    resetBrowserWalletState,
+  } = useBrowserWallet({ setWalletMode })
   const [contractAddress, setContractAddress] = useState(DEFAULT_CONTRACT_ADDRESS)
   const [listingForm, setListingForm] = useState(initialListingForm)
   const [createForm, setCreateForm] = useState(initialCreateForm)
@@ -1020,49 +1026,6 @@ function App() {
   }, [walletMode, circleSession?.userToken])
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.ethereum) {
-      return undefined
-    }
-
-    const browserProvider = new ethers.BrowserProvider(window.ethereum)
-    setProvider(browserProvider)
-
-    const handleAccountsChanged = async (accounts) => {
-      const nextAccount = accounts[0] || ''
-      setWalletAddress(nextAccount)
-
-      if (nextAccount) {
-        setWalletMode((current) => current === 'circle' ? current : 'browser')
-        const nextSigner = await browserProvider.getSigner()
-        setSigner(nextSigner)
-      } else {
-        setWalletMode((current) => current === 'browser' ? null : current)
-        setSigner(null)
-      }
-    }
-
-    const handleChainChanged = async (hexChainId) => {
-      setChainId(Number.parseInt(hexChainId, 16).toString())
-
-      const accounts = await browserProvider.send('eth_accounts', [])
-      await handleAccountsChanged(accounts)
-    }
-
-    window.ethereum.request({ method: 'eth_accounts' }).then(handleAccountsChanged)
-    window.ethereum
-      .request({ method: 'eth_chainId' })
-      .then((hexChainId) => setChainId(Number.parseInt(hexChainId, 16).toString()))
-
-    window.ethereum.on('accountsChanged', handleAccountsChanged)
-    window.ethereum.on('chainChanged', handleChainChanged)
-
-    return () => {
-      window.ethereum.removeListener('accountsChanged', handleAccountsChanged)
-      window.ethereum.removeListener('chainChanged', handleChainChanged)
-    }
-  }, [])
-
-  useEffect(() => {
     if (typeof window === 'undefined') {
       return
     }
@@ -1493,30 +1456,6 @@ function App() {
     }
   }
 
-  const refreshBrowserWalletConnection = async () => {
-    if (!window.ethereum) {
-      throw new Error('No injected wallet found. Install MetaMask or another EVM wallet.')
-    }
-
-    const browserProvider = new ethers.BrowserProvider(window.ethereum)
-    const accounts = await browserProvider.send('eth_accounts', [])
-
-    if (!accounts[0]) {
-      throw new Error('Browser wallet is disconnected. Connect it again to refresh wallet data.')
-    }
-
-    const [nextSigner, network] = await Promise.all([
-      browserProvider.getSigner(),
-      browserProvider.getNetwork(),
-    ])
-
-    setProvider(browserProvider)
-    setSigner(nextSigner)
-    setWalletAddress(accounts[0])
-    setChainId(network.chainId.toString())
-    setWalletMode('browser')
-  }
-
   const handleRefreshWallet = async () => {
     try {
       setIsBusy(true)
@@ -1671,19 +1610,10 @@ function App() {
 
     try {
       setError('')
-      const browserProvider = new ethers.BrowserProvider(window.ethereum)
-      const accounts = await browserProvider.send('eth_requestAccounts', [])
-      const nextSigner = await browserProvider.getSigner()
-      const network = await browserProvider.getNetwork()
-
-      setProvider(browserProvider)
-      setSigner(nextSigner)
-      setWalletAddress(accounts[0] || '')
-      setChainId(network.chainId.toString())
-      setWalletMode('browser')
+      const { chainId: nextChainId } = await connectBrowserWallet()
       setIsWalletModalOpen(false)
       setStatus(
-        network.chainId.toString() === ARC_TESTNET.chainId.toString()
+        nextChainId === ARC_TESTNET.chainId.toString()
           ? 'Wallet connected to Arc Testnet. You can create or manage escrows now.'
           : 'Wallet connected. Switch to Arc Testnet before sending transactions.',
       )
@@ -1706,9 +1636,7 @@ function App() {
       setCircleFlowStep('idle')
       setCircleMessage('Circle wallet disconnected from ArcEscrow. Sign in again whenever you are ready.')
     } else {
-      setSigner(null)
-      setWalletAddress('')
-      setChainId('')
+      resetBrowserWalletState()
     }
 
     setWalletMode(null)
