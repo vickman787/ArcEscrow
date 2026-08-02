@@ -356,6 +356,9 @@ function App() {
     : chainId === ARC_TESTNET.chainId.toString()
   const walletButtonLabel = activeWalletAddress ? shortenAddress(activeWalletAddress) : 'Connect Wallet'
   const themeButtonLabel = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
+  const walletBalanceLabel = walletMode === 'circle' && circleWalletBalanceLabel
+    ? circleWalletBalanceLabel
+    : `${formatTokenAmount(walletBalance, tokenDecimals)} ${tokenSymbol}`
   const networkLabel = hasConnectedWallet
     ? isCorrectNetwork
       ? ARC_TESTNET.chainName
@@ -1433,9 +1436,9 @@ function App() {
           href={`${APP_BASE_URL}/`}
           aria-label="Open ArcEscrow website"
         >
-          <img className="brand-logo" src="/logo-arc-1.svg" alt="ArcEscrow logo" />
+          <img className="brand-logo" src="/arcescrow-mark.svg" alt="ArcEscrow logo" />
           <div>
-            <p className="eyebrow">ArcEscrow</p>
+            <p className="eyebrow brand-wordmark"><span className="brand-wordmark__arc">Arc</span>Escrow</p>
             <strong>Arc Network escrow</strong>
           </div>
         </a>
@@ -1471,7 +1474,7 @@ function App() {
           <div className="app-nav__meta workspace-topbar__meta">
             <div className="nav-chip">
               <span>Available Balance</span>
-              <strong>{formatTokenAmount(walletBalance, tokenDecimals)} {tokenSymbol}</strong>
+              <strong>{walletBalanceLabel}</strong>
             </div>
             {hasConnectedWallet && !isCorrectNetwork && chainId ? (
               <button type="button" className="button-secondary nav-switch-button" onClick={switchToArcTestnet} disabled={isBusy}>
@@ -1556,10 +1559,6 @@ function App() {
 
         {activePage !== 'home' ? (
           <section className="top-band top-band--page">
-            <img
-              alt="Abstract vault with digital payment light trails"
-              src="https://images.unsplash.com/photo-1639322537228-f710d846310a?auto=format&fit=crop&w=1200&q=80"
-            />
             <div className="top-band__content">
               <p className="eyebrow">Payments</p>
               <h1>
@@ -1586,32 +1585,34 @@ function App() {
           {activePage === 'home' ? (
           <section className="home-overview">
             <section className="top-band top-band--dashboard home-hero">
-              <img
-                alt="Abstract vault with digital payment light trails"
-                src="https://images.unsplash.com/photo-1639322537228-f710d846310a?auto=format&fit=crop&w=1200&q=80"
-              />
               <div className="top-band__content">
-                <p className="eyebrow">Payments</p>
-                <h1>Secure payments. Trusted on Arc.</h1>
+                <p className="eyebrow">One link, one escrow</p>
+                <h1>Turn any deal into a link you can send in one message.</h1>
                 <p className="lede">
-                  ArcEscrow uses smart contracts and USDC on Arc Network to secure every deal.
+                  Create a listing, share the link, and let the buyer fund it themselves. ArcEscrow handles delivery confirmation, disputes, and the 7-day timeout automatically.
                 </p>
-                <div className="hero-stats" aria-label="ArcEscrow volume">
-                  <div>
-                    <span>Escrow Volume</span>
-                    <strong>
-                      {isEscrowVolumeLoading && escrowVolume == null
-                        ? 'Syncing...'
-                        : `${formatTokenAmount(escrowVolume, tokenDecimals)} ${tokenSymbol}`}
-                    </strong>
-                    {escrowVolumeBlock ? (
-                      <p className="hero-stats__caption">Synced as of block {escrowVolumeBlock.toLocaleString()}</p>
-                    ) : null}
-                  </div>
-                </div>
                 <div className="hero-links">
                   <button type="button" onClick={() => goToPage('buyer')}>Create Escrow</button>
                   <button type="button" className="button-secondary" onClick={() => goToPage('seller')}>Explore Listings</button>
+                </div>
+              </div>
+              <div className="hero-ticket" aria-label="ArcEscrow volume">
+                <div className="hero-ticket__top">
+                  <p className="hero-ticket__kicker">Live · all escrows</p>
+                  <span className="hero-ticket__label">Escrow volume</span>
+                  <strong className="hero-ticket__amount">
+                    {isEscrowVolumeLoading && escrowVolume == null
+                      ? 'Syncing...'
+                      : `${formatTokenAmount(escrowVolume, tokenDecimals)} ${tokenSymbol}`}
+                  </strong>
+                  {escrowVolumeBlock ? (
+                    <p className="hero-ticket__caption">Synced as of block {escrowVolumeBlock.toLocaleString()}</p>
+                  ) : null}
+                </div>
+                <div className="hero-ticket__tear" />
+                <div className="hero-ticket__bottom">
+                  <span className="hero-ticket__status">On-chain</span>
+                  <span className="hero-ticket__network">{networkLabel}</span>
                 </div>
               </div>
             </section>
@@ -1972,7 +1973,7 @@ function App() {
               </div>
               <div>
                 <span>Your balance</span>
-                <strong>{formatTokenAmount(walletBalance, tokenDecimals)} {tokenSymbol}</strong>
+                <strong>{walletBalanceLabel}</strong>
               </div>
               <div>
                 <span>Allowance</span>

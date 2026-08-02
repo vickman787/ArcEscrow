@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 7 88 79">
+  <style>
+    .link { stroke: #2451c4; }
+    .party { fill: #2451c4; }
+    .arbiter { fill: #c17d0f; }
+    @media (prefers-color-scheme: dark) {
+      .link { stroke: #6d94e6; }
+      .party { fill: #6d94e6; }
+      .arbiter { fill: #eab648; }
+    }
+  </style>
+  <path class="link" d="M50,24 L78,70 L22,70 Z" fill="none" stroke-width="5" stroke-linejoin="round" opacity="0.55"/>
+  <circle class="party" cx="22" cy="70" r="12"/>
+  <circle class="party" cx="78" cy="70" r="12"/>
+  <circle class="arbiter" cx="50" cy="24" r="13"/>
+</svg>

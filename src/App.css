@@ -70,6 +70,17 @@
   flex: 0 0 auto;
 }
 
+.eyebrow.brand-wordmark {
+  font-family: 'Unbounded', ui-sans-serif, sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.brand-wordmark__arc {
+  color: var(--accent-gold);
+}
+
 .hamburger-button {
   display: none;
   width: 2.8rem;
@@ -110,19 +121,19 @@
 
 .nav-link:hover:enabled,
 .nav-link:focus-visible {
-  background: rgba(31, 143, 95, 0.08);
+  background: rgba(36, 81, 196, 0.08);
   color: var(--accent-strong);
   transform: none;
 }
 
 .nav-link--active {
-  background: rgba(31, 143, 95, 0.1);
+  background: rgba(36, 81, 196, 0.1);
   color: var(--accent-strong);
 }
 
 .nav-link--active:hover:enabled,
 .nav-link--active:focus-visible {
-  background: rgba(31, 143, 95, 0.1);
+  background: rgba(36, 81, 196, 0.1);
 }
 
 .nav-chip {
@@ -155,8 +166,8 @@
 }
 
 .wallet-button--circle {
-  border-color: rgba(39, 151, 100, 0.42);
-  box-shadow: inset 0 0 0 1px rgba(39, 151, 100, 0.18);
+  border-color: rgba(193, 125, 15, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(193, 125, 15, 0.18);
 }
 
 .wallet-menu {
@@ -213,7 +224,7 @@
 }
 
 .wallet-menu__action:hover {
-  background: rgba(31, 143, 95, 0.08);
+  background: rgba(36, 81, 196, 0.08);
 }
 
 .wallet-menu__action--danger {
@@ -228,13 +239,14 @@
   position: fixed;
   inset: 0;
   z-index: 40;
-  display: grid;
-  place-items: center;
+  display: flex;
   padding: 1.25rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .wallet-modal__backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: rgba(5, 10, 14, 0.86);
   backdrop-filter: blur(10px) saturate(0.78);
@@ -267,10 +279,18 @@
   opacity: 0.58;
 }
 
+/* The modal lives inside .workspace, which is its own stacking context at
+   z-index 2 — below .workspace-topbar (z-index 30). Lift the workspace above
+   the topbar while the modal is open so the overlay covers the whole page. */
+.app-shell--wallet-modal-open .workspace {
+  z-index: 50;
+}
+
 .wallet-modal__panel {
   position: relative;
   z-index: 1;
   width: min(100%, 35rem);
+  margin: auto;
   padding: 1.2rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -308,7 +328,7 @@
 
 .wallet-modal__circle-card {
   padding: 1rem;
-  border: 1px solid rgba(39, 151, 100, 0.24);
+  border: 1px solid rgba(193, 125, 15, 0.24);
   border-radius: 8px;
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 92%, #4a7cff 8%) 0%, color-mix(in srgb, var(--accent-strong) 85%, #2c65ff 15%) 100%);
   display: grid;
@@ -515,7 +535,7 @@
   width: 2.35rem;
   height: 2.35rem;
   border-radius: 8px;
-  background: rgba(31, 143, 95, 0.12);
+  background: rgba(36, 81, 196, 0.12);
   color: var(--accent-strong);
   display: inline-flex;
   align-items: center;
@@ -599,27 +619,9 @@
   border-radius: 8px;
   box-shadow: var(--shadow);
   background:
-    radial-gradient(circle at 18% 22%, rgba(50, 179, 124, 0.24), transparent 28%),
-    radial-gradient(circle at 80% 18%, rgba(63, 125, 255, 0.16), transparent 24%),
-    linear-gradient(135deg, #0c1419 0%, #101a20 45%, #0b1116 100%);
-}
-
-.top-band img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 0.92;
-}
-
-.top-band::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(14, 22, 28, 0.2) 0%, rgba(14, 22, 28, 0.82) 68%),
-    linear-gradient(90deg, rgba(14, 22, 28, 0.85) 0%, rgba(14, 22, 28, 0.3) 70%);
+    radial-gradient(circle at 18% 22%, rgba(63, 111, 224, 0.28), transparent 28%),
+    radial-gradient(circle at 80% 18%, rgba(217, 143, 18, 0.16), transparent 24%),
+    linear-gradient(135deg, #0d1220 0%, #121a33 45%, #0a0e1a 100%);
 }
 
 .top-band__content {
@@ -827,7 +829,8 @@
 }
 
 .overview-panel {
-  min-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .overview-panel .dashboard-summary-grid {
@@ -876,7 +879,7 @@
 }
 
 .chart-empty-state {
-  min-height: 100%;
+  min-height: 10.5rem;
   display: grid;
   place-items: center;
   text-align: center;
@@ -896,36 +899,132 @@
 }
 
 .top-band--dashboard {
-  min-height: 38rem;
+  min-height: 26rem;
   align-items: center;
 }
 
 .home-hero {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2.5rem;
   width: 100%;
   max-width: none;
   min-width: 0;
   margin: 0;
+  padding: 0 2.5rem;
 }
 
 .top-band--dashboard .top-band__content {
-  padding: 2rem 2.1rem;
-  max-width: 72rem;
-  margin-left: 0;
-  margin-right: auto;
+  padding: 2rem 0;
+  max-width: 34rem;
+  margin: 0;
+  flex: 1 1 28rem;
 }
 
 .top-band--dashboard .top-band__content h1 {
   max-width: none;
-  font-size: clamp(2.85rem, 3.55vw, 4.8rem);
-  line-height: 1.06;
-  white-space: nowrap;
+  font-size: clamp(2.1rem, 2.8vw, 3.1rem);
+  line-height: 1.12;
 }
 
 .top-band--dashboard .lede {
-  max-width: 38rem;
-  font-size: 1.16rem;
-  line-height: 1.65;
+  max-width: 30rem;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.hero-ticket {
+  flex: 0 0 20rem;
+  background: var(--surface-overlay);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  box-shadow: 0 24px 48px -24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.hero-ticket__top {
+  padding: 1.5rem 1.6rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.hero-ticket__kicker {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.hero-ticket__label {
+  font-size: 0.82rem;
+  color: var(--text-soft);
+}
+
+.hero-ticket__amount {
+  font-family: 'Unbounded', ui-sans-serif, sans-serif;
+  font-size: 1.7rem;
+  line-height: 1.15;
+  color: var(--text-strong);
+}
+
+.hero-ticket__caption {
+  margin: 0.3rem 0 0;
+  font-size: 0.72rem;
+  color: var(--text-soft);
+}
+
+.hero-ticket__tear {
+  position: relative;
+  height: 0;
+  border-top: 2px dashed var(--border-strong);
+  margin: 0 1.6rem;
+}
+
+.hero-ticket__tear::before,
+.hero-ticket__tear::after {
+  content: '';
+  position: absolute;
+  top: -0.7rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  background: #0d1220;
+  border-radius: 999px;
+}
+
+.hero-ticket__tear::before {
+  left: -1.8rem;
+}
+
+.hero-ticket__tear::after {
+  right: -1.8rem;
+}
+
+.hero-ticket__bottom {
+  padding: 1.2rem 1.6rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.hero-ticket__status {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+  background: rgba(36, 81, 196, 0.12);
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+}
+
+.hero-ticket__network {
+  font-size: 0.78rem;
+  color: var(--text-soft);
 }
 
 .overview-stats-stack .panel,
@@ -1092,7 +1191,7 @@
   border-radius: 999px;
   padding: 0.35rem 0.7rem;
   color: var(--accent-strong);
-  background: rgba(31, 143, 95, 0.08);
+  background: rgba(36, 81, 196, 0.08);
   font-size: 0.82rem;
   font-weight: 700;
   white-space: nowrap;
@@ -1303,8 +1402,8 @@
 }
 
 .dashboard-filter--active {
-  border-color: rgba(31, 143, 95, 0.28);
-  background: rgba(31, 143, 95, 0.08);
+  border-color: rgba(36, 81, 196, 0.28);
+  background: rgba(36, 81, 196, 0.08);
   color: var(--accent-strong);
 }
 
@@ -1443,12 +1542,12 @@
 }
 
 .status-pill--created {
-  background: rgba(64, 98, 187, 0.12);
-  color: #3152a0;
+  background: rgba(36, 81, 196, 0.12);
+  color: var(--accent-strong);
 }
 
 .status-pill--funded {
-  background: rgba(31, 143, 95, 0.12);
+  background: rgba(36, 81, 196, 0.12);
   color: var(--accent-strong);
 }
 
@@ -1591,9 +1690,9 @@
   }
 
   .nav-link--active {
-    background: rgba(31, 143, 95, 0.14);
+    background: rgba(36, 81, 196, 0.14);
     color: var(--accent-strong);
-    border: 1px solid rgba(31, 143, 95, 0.24);
+    border: 1px solid rgba(36, 81, 196, 0.24);
   }
 
   .hamburger-button {
@@ -1655,6 +1754,24 @@
 
   .top-band--dashboard {
     min-height: 22rem;
+  }
+
+  .home-hero {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 1.75rem;
+    gap: 1.5rem;
+  }
+
+  .top-band--dashboard .top-band__content {
+    max-width: none;
+    flex: none;
+    padding: 0;
+  }
+
+  .hero-ticket {
+    flex: none;
+    width: 100%;
   }
 
   .workspace,
