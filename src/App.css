@@ -1669,6 +1669,14 @@
     flex-direction: row;
   }
 
+  /* Must accompany the single-column template above. .app-main is pinned to
+     grid-column 2 at desktop width; leaving that in place here would place it
+     in an implicit second column, squeezing every page into roughly half the
+     screen while overflow-x: clip hides the remainder. */
+  .app-main {
+    grid-column: auto;
+  }
+
   .app-nav__brand {
     flex: 1 1 auto;
   }
@@ -1884,6 +1892,47 @@
 @media (max-width: 640px) {
   .top-band__content {
     padding: 2rem 1.25rem 1.35rem;
+  }
+
+  /* The 980px rules stack every control full-width, which pushes roughly a
+     screen of chrome above the actual page on a phone. Pair the chips on one
+     row and the theme toggle with the wallet button on the next. */
+  .workspace-topbar__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: flex-start;
+  }
+
+  .workspace-topbar__meta .nav-chip {
+    flex: 1 1 8rem;
+    width: auto;
+    min-width: 0;
+    padding: 0.55rem 0.75rem;
+  }
+
+  .workspace-topbar__meta .nav-theme-button {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .workspace-topbar__meta .wallet-menu {
+    flex: 1 1 10rem;
+    width: auto;
+  }
+
+  .workspace-topbar__meta .nav-switch-button {
+    flex: 1 1 100%;
+    width: auto;
+  }
+
+  /* Footer social icon was a 16px tap target - below the ~44px guideline. */
+  .social-link {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .wallet-modal {
