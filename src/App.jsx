@@ -373,15 +373,22 @@ function App() {
     walletAddress: activeWalletAddress,
     tokenDecimals,
   })
-  const escrowContract = useMemo(() => {
-    const readProvider = provider || publicProvider
+  // Reads must never go through the injected wallet unless it is actually on Arc. A visitor with
+  // MetaMask on some other chain would otherwise eth_call an address that holds no code there, get
+  // back "0x", and see ethers fail with "could not decode result data" - even on pages where they
+  // never connected a wallet at all. The public Arc RPC is always correct for reads.
+  const readProvider = useMemo(
+    () => (provider && chainId === ARC_TESTNET.chainId.toString() ? provider : publicProvider),
+    [provider, chainId, publicProvider],
+  )
 
+  const escrowContract = useMemo(() => {
     if (!readProvider || !contractAddress || !ethers.isAddress(contractAddress)) {
       return null
     }
 
     return new ethers.Contract(contractAddress, ESCROW_MANAGER_ABI, readProvider)
-  }, [provider, publicProvider, contractAddress])
+  }, [readProvider, contractAddress])
 
   const signerContract = useMemo(() => {
     if (!signer || !contractAddress || !ethers.isAddress(contractAddress)) {
@@ -392,14 +399,12 @@ function App() {
   }, [signer, contractAddress])
 
   const usdcContract = useMemo(() => {
-    const readProvider = provider || publicProvider
-
     if (!readProvider || !usdcAddress || !ethers.isAddress(usdcAddress)) {
       return null
     }
 
     return new ethers.Contract(usdcAddress, ERC20_ABI, readProvider)
-  }, [provider, publicProvider, usdcAddress])
+  }, [readProvider, usdcAddress])
 
   const signerUsdcContract = useMemo(() => {
     if (!signer || !usdcAddress || !ethers.isAddress(usdcAddress)) {
@@ -554,8 +559,11 @@ function App() {
 
     const storedWalletMode = window.localStorage.getItem(WALLET_MODE_STORAGE_KEY)
 
-    if (storedWalletMode === 'circle') {
-      setWalletMode('circle')
+    // Restore both modes, not just Circle. The browser hook's passive eth_accounts probe only
+    // claims the mode when it is still unset, so the stored choice has to be replayed here or a
+    // returning Circle user with an authorised extension would come back in browser mode.
+    if (storedWalletMode === 'circle' || storedWalletMode === 'browser') {
+      setWalletMode(storedWalletMode)
     }
   }, [])
 

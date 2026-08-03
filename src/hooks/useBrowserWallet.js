@@ -26,7 +26,10 @@ export function useBrowserWallet({ setWalletMode }) {
       setWalletAddress(nextAccount)
 
       if (nextAccount) {
-        setWalletMode((current) => current === 'circle' ? current : 'browser')
+        // Only claim browser mode when nothing else has: this fires from a passive eth_accounts
+        // probe on mount, so an already-authorised extension must not silently take over a session
+        // the user opened with Circle. Explicit connects below still set the mode outright.
+        setWalletMode((current) => current || 'browser')
         const nextSigner = await browserProvider.getSigner()
         setSigner(nextSigner)
       } else {
