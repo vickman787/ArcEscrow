@@ -344,7 +344,6 @@ function App() {
     setIsBusy,
     setIsWalletModalOpen,
     setIsWalletMenuOpen,
-    provider,
     publicProvider,
   })
 

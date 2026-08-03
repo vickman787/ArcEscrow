@@ -30,7 +30,10 @@ export function useBrowserWallet({ setWalletMode }) {
         // probe on mount, so an already-authorised extension must not silently take over a session
         // the user opened with Circle. Explicit connects below still set the mode outright.
         setWalletMode((current) => current || 'browser')
-        const nextSigner = await browserProvider.getSigner()
+        // Pass the address explicitly. getSigner() with no argument falls back to
+        // eth_requestAccounts when it cannot resolve a signer, which pops the extension open -
+        // unacceptable from a passive probe, and it was firing at Circle users mid-flow.
+        const nextSigner = await browserProvider.getSigner(nextAccount)
         setSigner(nextSigner)
       } else {
         setWalletMode((current) => current === 'browser' ? null : current)
@@ -92,7 +95,7 @@ export function useBrowserWallet({ setWalletMode }) {
     }
 
     const [nextSigner, network] = await Promise.all([
-      browserProvider.getSigner(),
+      browserProvider.getSigner(accounts[0]),
       browserProvider.getNetwork(),
     ])
 

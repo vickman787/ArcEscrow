@@ -213,9 +213,9 @@ describe('getCreateFormError', () => {
 })
 
 describe('getDisplayError', () => {
-  it('prefers shortMessage, then reason, then message', () => {
-    expect(getDisplayError({ shortMessage: 'short' })).toBe('short')
+  it('prefers a decoded revert reason, then shortMessage, then message', () => {
     expect(getDisplayError({ reason: 'reason' })).toBe('reason')
+    expect(getDisplayError({ shortMessage: 'short' })).toBe('short')
     expect(getDisplayError({ message: 'message' })).toBe('message')
   })
 
@@ -226,6 +226,36 @@ describe('getDisplayError', () => {
 
   it('suppresses the "could not coalesce error" noise', () => {
     expect(getDisplayError({ message: 'could not coalesce error (foo)' })).toBe('')
+  })
+
+  // Gas estimation frequently fails without revert data, so ethers surfaces only "missing revert
+  // data" while the require() text sits in the nested JSON-RPC error. Users were being shown the
+  // useless string instead of the rule they actually broke.
+  it('digs the require() string out of a nested JSON-RPC error', () => {
+    expect(
+      getDisplayError({
+        shortMessage: 'missing revert data',
+        info: { error: { code: 3, message: 'execution reverted: Escrow does not exist' } },
+      }),
+    ).toBe('Escrow does not exist')
+
+    expect(
+      getDisplayError({
+        message: 'call revert exception',
+        info: { error: { code: 3, message: 'execution reverted: Buyer and seller cannot be the same' } },
+      }),
+    ).toBe('Buyer and seller cannot be the same')
+
+    expect(
+      getDisplayError({ error: { message: 'execution reverted: Amount must be greater than zero' } }),
+    ).toBe('Amount must be greater than zero')
+  })
+
+  it('explains a bare "missing revert data" instead of leaking it', () => {
+    const message = getDisplayError({ shortMessage: 'missing revert data' })
+
+    expect(message).not.toContain('missing revert data')
+    expect(message).toContain('three different wallets')
   })
 })
 

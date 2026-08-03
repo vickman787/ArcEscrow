@@ -193,11 +193,58 @@ export function getHistoryActionLabel(name) {
   }
 }
 
+// Pulls the human revert string out of a failed transaction. A require() message only reaches
+// error.reason when the node returned revert data; gas estimation often fails without any, leaving
+// ethers to report the useless "missing revert data" while the real text ("execution reverted:
+// Buyer and seller cannot be the same") sits in the nested JSON-RPC error. Check the nested payload
+// before falling back so users see the actual rule they broke.
+function findRevertReason(error) {
+  const candidates = [
+    error?.info?.error?.message,
+    error?.error?.message,
+    error?.info?.error?.data?.message,
+    error?.data?.message,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string' || !candidate.trim()) {
+      continue
+    }
+
+    const match = /execution reverted:?\s*(.*)/i.exec(candidate)
+
+    if (match) {
+      return match[1].trim() || candidate.trim()
+    }
+
+    return candidate.trim()
+  }
+
+  return ''
+}
+
 export function getDisplayError(error) {
-  const message = error?.shortMessage || error?.reason || error?.message || 'Something went wrong.'
+  if (typeof error?.reason === 'string' && error.reason.trim()) {
+    return error.reason.trim()
+  }
+
+  const nested = findRevertReason(error)
+
+  if (nested) {
+    return nested
+  }
+
+  const message = error?.shortMessage || error?.message || 'Something went wrong.'
 
   if (typeof message === 'string' && message.toLowerCase().includes('could not coalesce error')) {
     return ''
+  }
+
+  // Nothing usable came back, so describe what happened rather than leaking ethers internals.
+  // Kept deliberately neutral: this path covers reads as well as writes, so it must not assert a
+  // cause it cannot know. If you were creating an escrow the three-wallet rule is the usual culprit.
+  if (typeof message === 'string' && message.toLowerCase().includes('missing revert data')) {
+    return 'The contract rejected this request without giving a reason. If you were creating an escrow, check that the buyer, seller, and arbiter are three different wallets.'
   }
 
   return message

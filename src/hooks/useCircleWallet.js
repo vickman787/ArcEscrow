@@ -28,8 +28,8 @@ function wait(ms) {
 // of the session. Takes the handful of top-level pieces it needs to touch as parameters
 // (walletMode/setWalletMode is shared with the browser-wallet path; setError/setStatus/setIsBusy/
 // setIsWalletModalOpen/setIsWalletMenuOpen are generic UI state used across the whole app;
-// provider/publicProvider come from the browser-wallet hook and are only used here to look up a
-// transaction receipt once Circle reports a tx hash).
+// publicProvider is the Arc RPC, used only to look up a transaction receipt once Circle reports a
+// tx hash - deliberately not the injected wallet, which may be on a different chain).
 export function useCircleWallet({
   theme,
   walletMode,
@@ -39,7 +39,6 @@ export function useCircleWallet({
   setIsBusy,
   setIsWalletModalOpen,
   setIsWalletMenuOpen,
-  provider,
   publicProvider,
 }) {
   const [circleEmail, setCircleEmail] = useState('')
@@ -364,8 +363,9 @@ export function useCircleWallet({
           ''
 
         if (txHash) {
-          const readProvider = provider || publicProvider
-          const receipt = await readProvider.getTransactionReceipt(txHash)
+          // Circle always settles on Arc, so read the receipt from the Arc RPC rather than the
+          // injected wallet, which may be pointed at an entirely different chain.
+          const receipt = await publicProvider.getTransactionReceipt(txHash)
 
           if (receipt) {
             return { challenge, transaction, txHash, receipt }
