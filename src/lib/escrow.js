@@ -45,6 +45,19 @@ export function getEscrowVolumeStartBlock(contractAddress, latestBlock) {
   return Math.max(0, latestBlock - FALLBACK_VOLUME_LOOKBACK_BLOCKS)
 }
 
+// Saved listings used to live under one global key, so every wallet on a shared browser saw the
+// same drafts. Scope them per wallet instead. LEGACY_LISTINGS_STORAGE_KEY is only read once, to
+// migrate a device's existing drafts to their owner.
+export const LEGACY_LISTINGS_STORAGE_KEY = 'arc-escrow-listings'
+
+export function getListingsStorageKey(walletAddress) {
+  if (!walletAddress) {
+    return ''
+  }
+
+  return `${LEGACY_LISTINGS_STORAGE_KEY}:${walletAddress.toLowerCase()}`
+}
+
 export function getDismissedEscrowsStorageKey(contractAddress, walletAddress) {
   if (!contractAddress || !walletAddress) {
     return ''

@@ -4,11 +4,13 @@ import './App.css'
 import { ethers } from 'ethers'
 import {
   DEFAULT_CONTRACT_ADDRESS,
+  LEGACY_LISTINGS_STORAGE_KEY,
   buildEscrowRecord,
   formatTokenAmount,
   getCreateFormError,
   getEscrowRole,
   getEscrowVolumeStartBlock,
+  getListingsStorageKey,
   getNextEscrowStep,
   queryEventsInChunks,
   setDisplayError,
@@ -493,15 +495,6 @@ function App() {
       return
     }
 
-    const storedListings = window.localStorage.getItem('arc-escrow-listings')
-    if (storedListings) {
-      try {
-        setSavedListings(JSON.parse(storedListings))
-      } catch {
-        setSavedListings([])
-      }
-    }
-
     const storedAddress = window.localStorage.getItem('arc-escrow-contract-address')
 
     if (storedAddress && !DEFAULT_CONTRACT_ADDRESS) {
@@ -509,35 +502,15 @@ function App() {
     }
 
     const params = new URLSearchParams(window.location.search)
-    const listingId = params.get('listing') || ''
     const arbiter = params.get('arbiter') || ''
     const seller = params.get('seller') || ''
     const amount = params.get('amount') || ''
     const title = params.get('title') || ''
     const description = params.get('description') || ''
 
-    if (listingId && storedListings) {
-      try {
-        const parsedListings = JSON.parse(storedListings)
-        const listing = parsedListings.find((item) => item.id === listingId)
-
-        if (listing) {
-          setCreateForm({
-            seller: listing.seller,
-            arbiter: listing.arbiter || '',
-            amount: listing.amount,
-            title: listing.title,
-            description: listing.description,
-          })
-          setActivePage('buyer')
-          setStatus('Saved seller listing loaded. Buyer can now create the escrow.')
-          return
-        }
-      } catch {
-        // Ignore malformed local listing storage and continue with query-param fallback.
-      }
-    }
-
+    // The listing id in the URL is only a handle for the seller's own device. Everything a buyer
+    // needs is carried in the query string by buildPersistentListingLink, so prefill from that
+    // instead of reading local storage - the buyer is a different person on a different machine.
     if (seller || amount || title || description) {
       setCreateForm({
         seller,
@@ -592,13 +565,63 @@ function App() {
     return () => window.removeEventListener('hashchange', handleHashChange)
   }, [])
 
+  // Load the connected wallet's own drafts. Listings were previously kept under a single global
+  // key, so on a shared browser every wallet saw every other wallet's drafts. Each listing records
+  // the seller that made it, so a device's existing drafts can be handed to their rightful owner
+  // on first load rather than discarded.
   useEffect(() => {
     if (typeof window === 'undefined') {
       return
     }
 
-    window.localStorage.setItem('arc-escrow-listings', JSON.stringify(savedListings))
-  }, [savedListings])
+    const storageKey = getListingsStorageKey(activeWalletAddress)
+
+    if (!storageKey) {
+      setSavedListings([])
+      return
+    }
+
+    const readListings = (key) => {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(key) || '[]')
+        return Array.isArray(parsed) ? parsed : []
+      } catch {
+        return []
+      }
+    }
+
+    const owned = readListings(storageKey)
+
+    if (owned.length) {
+      setSavedListings(owned)
+      return
+    }
+
+    const inherited = readListings(LEGACY_LISTINGS_STORAGE_KEY).filter(
+      (listing) => listing?.seller?.toLowerCase() === activeWalletAddress.toLowerCase(),
+    )
+
+    setSavedListings(inherited)
+
+    if (inherited.length) {
+      window.localStorage.setItem(storageKey, JSON.stringify(inherited))
+    }
+  }, [activeWalletAddress])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const storageKey = getListingsStorageKey(activeWalletAddress)
+
+    // Without a wallet there is no owner to file drafts under, so hold them in memory only.
+    if (!storageKey) {
+      return
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(savedListings))
+  }, [savedListings, activeWalletAddress])
 
   useEffect(() => {
     if (typeof window === 'undefined') {

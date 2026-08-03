@@ -7,6 +7,7 @@ import {
   getDisplayError,
   getEscrowRole,
   getEscrowVolumeStartBlock,
+  getListingsStorageKey,
   getHistoryActionLabel,
   getNextEscrowStep,
   isActiveEscrowState,
@@ -280,5 +281,24 @@ describe('getDismissedEscrowsStorageKey', () => {
   it('returns an empty string when either address is missing', () => {
     expect(getDismissedEscrowsStorageKey('', BUYER)).toBe('')
     expect(getDismissedEscrowsStorageKey(SELLER, '')).toBe('')
+  })
+})
+
+describe('getListingsStorageKey', () => {
+  it('scopes saved listings to the connected wallet', () => {
+    expect(getListingsStorageKey(BUYER)).toBe(`arc-escrow-listings:${BUYER.toLowerCase()}`)
+  })
+
+  it('is case-insensitive so a checksummed address maps to the same key', () => {
+    expect(getListingsStorageKey(BUYER.toUpperCase())).toBe(getListingsStorageKey(BUYER))
+  })
+
+  it('gives different wallets different keys', () => {
+    expect(getListingsStorageKey(BUYER)).not.toBe(getListingsStorageKey(SELLER))
+  })
+
+  it('returns empty when no wallet is connected, so nothing is persisted unscoped', () => {
+    expect(getListingsStorageKey('')).toBe('')
+    expect(getListingsStorageKey(undefined)).toBe('')
   })
 })
