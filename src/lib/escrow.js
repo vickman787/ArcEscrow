@@ -6,6 +6,12 @@ export const DEFAULT_CONTRACT_ADDRESS =
 
 const DISMISSED_ESCROWS_STORAGE_PREFIX = 'arc-escrow-dismissed-escrows'
 const LOG_QUERY_BLOCK_SPAN = 9999
+// The public Arc RPC rate limits, and a full volume scan is hundreds of eth_getLogs calls that only
+// grows as the chain advances. Pause briefly between chunks and back off when the RPC pushes back,
+// otherwise the scan dies partway through and the UI reports a raw "rate limit exceeded".
+const LOG_QUERY_CHUNK_DELAY_MS = 120
+const LOG_QUERY_MAX_RETRIES = 5
+const LOG_QUERY_BASE_BACKOFF_MS = 500
 const FALLBACK_VOLUME_LOOKBACK_BLOCKS = 5_000_000
 // Deployment block of DEFAULT_CONTRACT_ADDRESS above - update this alongside that address on every
 // redeploy, or the volume scan will waste RPC calls scanning blocks before the contract existed.
@@ -58,6 +64,54 @@ export function getListingsStorageKey(walletAddress) {
   return `${LEGACY_LISTINGS_STORAGE_KEY}:${walletAddress.toLowerCase()}`
 }
 
+// Settled volume is immutable once a block is final, so a completed scan never needs repeating.
+// Without this every page load re-scanned from the deployment block - already over a million blocks
+// and growing daily - which is what tripped the RPC's rate limit.
+const VOLUME_CACHE_STORAGE_PREFIX = 'arc-escrow-volume'
+
+export function getVolumeCacheStorageKey(contractAddress) {
+  if (!contractAddress) {
+    return ''
+  }
+
+  return `${VOLUME_CACHE_STORAGE_PREFIX}:${contractAddress.toLowerCase()}`
+}
+
+export function readVolumeCache(contractAddress) {
+  const key = getVolumeCacheStorageKey(contractAddress)
+
+  if (!key || typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || 'null')
+
+    if (!parsed || typeof parsed.lastBlock !== 'number' || typeof parsed.volume !== 'string') {
+      return null
+    }
+
+    return { lastBlock: parsed.lastBlock, volume: BigInt(parsed.volume) }
+  } catch {
+    return null
+  }
+}
+
+export function writeVolumeCache(contractAddress, lastBlock, volume) {
+  const key = getVolumeCacheStorageKey(contractAddress)
+
+  if (!key || typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    // volume is a bigint, which JSON cannot represent - store it as a decimal string.
+    window.localStorage.setItem(key, JSON.stringify({ lastBlock, volume: volume.toString() }))
+  } catch {
+    // A full or unavailable storage quota only costs us the cache, so carry on.
+  }
+}
+
 export function getDismissedEscrowsStorageKey(contractAddress, walletAddress) {
   if (!contractAddress || !walletAddress) {
     return ''
@@ -66,12 +120,61 @@ export function getDismissedEscrowsStorageKey(contractAddress, walletAddress) {
   return `${DISMISSED_ESCROWS_STORAGE_PREFIX}:${contractAddress.toLowerCase()}:${walletAddress.toLowerCase()}`
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+export function isRateLimitError(error) {
+  if (error?.code === -32005 || error?.info?.error?.code === -32005 || error?.status === 429) {
+    return true
+  }
+
+  const text = [
+    error?.shortMessage,
+    error?.message,
+    error?.info?.error?.message,
+    error?.error?.message,
+  ]
+    .filter((value) => typeof value === 'string')
+    .join(' ')
+    .toLowerCase()
+
+  return (
+    text.includes('rate limit') ||
+    text.includes('too many requests') ||
+    text.includes('exceeds defined limit')
+  )
+}
+
 export async function queryEventsInChunks(contract, filter, fromBlock, toBlock) {
   const events = []
+  let isFirstChunk = true
 
   for (let from = fromBlock; from <= toBlock; from += LOG_QUERY_BLOCK_SPAN + 1) {
     const to = Math.min(from + LOG_QUERY_BLOCK_SPAN, toBlock)
-    events.push(...await contract.queryFilter(filter, from, to))
+
+    if (!isFirstChunk) {
+      await sleep(LOG_QUERY_CHUNK_DELAY_MS)
+    }
+
+    isFirstChunk = false
+
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        events.push(...await contract.queryFilter(filter, from, to))
+        break
+      } catch (error) {
+        // Only rate limits are worth retrying; anything else is a real failure and retrying it just
+        // delays the error the caller needs to see.
+        if (attempt >= LOG_QUERY_MAX_RETRIES || !isRateLimitError(error)) {
+          throw error
+        }
+
+        await sleep(LOG_QUERY_BASE_BACKOFF_MS * 2 ** attempt)
+      }
+    }
   }
 
   return events

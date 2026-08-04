@@ -7,10 +7,11 @@ import {
   getDisplayError,
   getEscrowRole,
   getEscrowVolumeStartBlock,
-  getListingsStorageKey,
   getHistoryActionLabel,
+  getListingsStorageKey,
   getNextEscrowStep,
   isActiveEscrowState,
+  isRateLimitError,
   isTerminalEscrowState,
   shortenAddress,
 } from './escrow.js'
@@ -281,6 +282,22 @@ describe('getDismissedEscrowsStorageKey', () => {
   it('returns an empty string when either address is missing', () => {
     expect(getDismissedEscrowsStorageKey('', BUYER)).toBe('')
     expect(getDismissedEscrowsStorageKey(SELLER, '')).toBe('')
+  })
+})
+
+describe('isRateLimitError', () => {
+  it('recognises the wording the Arc RPC actually returns', () => {
+    expect(isRateLimitError({ message: 'Request exceeds defined limit ... rate limit exceeded' })).toBe(true)
+    expect(isRateLimitError({ info: { error: { message: 'rate limit exceeded' } } })).toBe(true)
+    expect(isRateLimitError({ message: 'Too Many Requests' })).toBe(true)
+    expect(isRateLimitError({ code: -32005 })).toBe(true)
+  })
+
+  // Retrying a genuine failure would only delay the error the caller needs to see.
+  it('does not treat ordinary failures as rate limits', () => {
+    expect(isRateLimitError({ message: 'execution reverted: Escrow does not exist' })).toBe(false)
+    expect(isRateLimitError({})).toBe(false)
+    expect(isRateLimitError(undefined)).toBe(false)
   })
 })
 

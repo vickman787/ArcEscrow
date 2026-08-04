@@ -13,8 +13,10 @@ import {
   getListingsStorageKey,
   getNextEscrowStep,
   queryEventsInChunks,
+  readVolumeCache,
   setDisplayError,
   shortenAddress,
+  writeVolumeCache,
 } from './lib/escrow'
 import { useBrowserWallet } from './hooks/useBrowserWallet'
 import { useCircleWallet } from './hooks/useCircleWallet'
@@ -312,7 +314,13 @@ function App() {
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false)
   const [hasCopiedWalletAddress, setHasCopiedWalletAddress] = useState(false)
   const [theme, setTheme] = useState(getInitialTheme)
-  const publicProvider = useMemo(() => new ethers.JsonRpcProvider(ARC_TESTNET.rpcUrl), [])
+  // batchMaxCount: 1 disables ethers' JSON-RPC batching. The public Arc RPC rejects the combined
+  // payloads a log scan produces, and ethers reports that as "could not coalesce error" or a rate
+  // limit, killing the scan partway. One request per call completes reliably instead.
+  const publicProvider = useMemo(
+    () => new ethers.JsonRpcProvider(ARC_TESTNET.rpcUrl, undefined, { batchMaxCount: 1 }),
+    [],
+  )
 
   const {
     circleEmail,
@@ -747,6 +755,7 @@ function App() {
       lastScannedBlock = toBlock
       setEscrowVolume(currentVolume)
       setEscrowVolumeBlock(toBlock)
+      writeVolumeCache(contractAddress, toBlock, currentVolume)
     }
 
     const handleBlock = (blockNumber) => {
@@ -770,8 +779,21 @@ function App() {
         setIsEscrowVolumeLoading(true)
         const latestBlock = await publicProvider.getBlockNumber()
         const startBlock = getEscrowVolumeStartBlock(contractAddress, latestBlock)
+        const cached = readVolumeCache(contractAddress)
+        // Resume from a previous scan when the cache covers a sane range for this contract.
+        // Anything outside it (a redeployed contract, a rolled-back chain) falls back to a full scan.
+        const canResume =
+          cached && cached.lastBlock >= startBlock && cached.lastBlock <= latestBlock
 
-        await scanReleasedVolume(startBlock, latestBlock, true)
+        if (canResume) {
+          currentVolume = cached.volume
+          lastScannedBlock = cached.lastBlock
+          setEscrowVolume(currentVolume)
+          setEscrowVolumeBlock(cached.lastBlock)
+          await scanReleasedVolume(cached.lastBlock + 1, latestBlock)
+        } else {
+          await scanReleasedVolume(startBlock, latestBlock, true)
+        }
 
         if (!isCancelled) {
           publicProvider.on('block', handleBlock)
