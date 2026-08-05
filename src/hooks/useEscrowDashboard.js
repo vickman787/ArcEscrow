@@ -251,29 +251,27 @@ export function useEscrowDashboard({
       const normalizedWallet = activeWalletAddress.toLowerCase()
       const latestBlock = await readProvider.getBlockNumber()
       const fromBlock = getEscrowVolumeStartBlock(contractAddress, latestBlock)
-      const [approvalEvents, createdEvents, fundedEvents, deliveredEvents, releasedEvents, refundedEvents, disputeOpenedEvents, disputeResolvedEvents, cancelledEvents, timeoutVoteEvents] = await Promise.all([
+      // Every escrow event lives on the same contract, so fetch them with one topic0 OR filter
+      // instead of a query per event type. Nine separate scans of the full block range meant about
+      // 1,200 eth_getLogs calls per load, which exhausted the shared RPC quota and broke unrelated
+      // calls - including the ones Circle makes to settle a transaction. Ethers still resolves each
+      // log to its own fragment, so the results are identical.
+      const escrowEventTopics = [
+        'EscrowCreated',
+        'EscrowFunded',
+        'DeliveryMarked',
+        'EscrowReleased',
+        'EscrowRefunded',
+        'DisputeOpened',
+        'DisputeResolved',
+        'EscrowCancelled',
+        'TimeoutVoteCast',
+      ].map((eventName) => escrowContract.interface.getEvent(eventName).topicHash)
+
+      const [approvalEvents, escrowEvents] = await Promise.all([
         queryEventsInChunks(usdcContract, usdcContract.filters.Approval(activeWalletAddress, contractAddress), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowCreated(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowFunded(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.DeliveryMarked(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowReleased(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowRefunded(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.DisputeOpened(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.DisputeResolved(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.EscrowCancelled(), fromBlock, latestBlock),
-        queryEventsInChunks(escrowContract, escrowContract.filters.TimeoutVoteCast(), fromBlock, latestBlock),
+        queryEventsInChunks(escrowContract, [escrowEventTopics], fromBlock, latestBlock),
       ])
-      const escrowEvents = [
-        ...createdEvents,
-        ...fundedEvents,
-        ...deliveredEvents,
-        ...releasedEvents,
-        ...refundedEvents,
-        ...disputeOpenedEvents,
-        ...disputeResolvedEvents,
-        ...cancelledEvents,
-        ...timeoutVoteEvents,
-      ]
       const allEvents = [...approvalEvents, ...escrowEvents]
 
       if (!allEvents.length) {

@@ -728,6 +728,15 @@ function App() {
       return undefined
     }
 
+    // Escrow volume is only rendered on the home page, but this scan is hundreds of RPC calls. Left
+    // ungated it ran on the buyer and manage pages too, burning the shared request quota on a
+    // number nobody was looking at - and once that quota is gone every other call fails, including
+    // the ones Circle makes to settle a transaction. Only scan where the figure is actually shown.
+    if (activePage !== 'home') {
+      setIsEscrowVolumeLoading(false)
+      return undefined
+    }
+
     let isCancelled = false
     let currentVolume = 0n
     let lastScannedBlock = null
@@ -817,7 +826,7 @@ function App() {
       isCancelled = true
       publicProvider.off('block', handleBlock)
     }
-  }, [contractAddress, publicProvider])
+  }, [contractAddress, publicProvider, activePage])
 
   const loadWalletData = async () => {
     if (!activeWalletAddress || !usdcContract || !contractAddress || !ethers.isAddress(contractAddress)) {
