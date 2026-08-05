@@ -320,12 +320,27 @@ export function useCircleWallet({
   const resolveCircleTransaction = async ({ challengeId, userToken }) => {
     const maxAttempts = 60
     let lastChallenge = null
+    let lastPollError = null
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const challengePayload = await postCircleAction('getChallenge', {
-        userToken,
-        challengeId,
-      })
+      // By this point Circle has already accepted the transaction and it is on its way to the
+      // chain. A dropped request while polling - a flaky network, a cold serverless function - says
+      // nothing about whether it succeeded, so retry rather than abort. Aborting here reported
+      // failure for escrows that were in fact created, and users retried and created duplicates.
+      let challengePayload
+
+      try {
+        challengePayload = await postCircleAction('getChallenge', {
+          userToken,
+          challengeId,
+        })
+        lastPollError = null
+      } catch (pollError) {
+        lastPollError = pollError
+        await wait(2000)
+        continue
+      }
+
       const challenge =
         challengePayload.challenge ||
         challengePayload.userChallenge ||
@@ -344,14 +359,24 @@ export function useCircleWallet({
         ''
 
       if (transactionId) {
-        const transactionPayload = await postCircleAction('getTransaction', {
-          userToken,
-          transactionId,
-        })
-        const transaction =
-          transactionPayload.transaction ||
-          transactionPayload.userTransaction ||
-          transactionPayload
+        let transaction
+
+        try {
+          const transactionPayload = await postCircleAction('getTransaction', {
+            userToken,
+            transactionId,
+          })
+          transaction =
+            transactionPayload.transaction ||
+            transactionPayload.userTransaction ||
+            transactionPayload
+          lastPollError = null
+        } catch (pollError) {
+          // Same reasoning as above: a failed lookup is not a failed transaction.
+          lastPollError = pollError
+          await wait(2000)
+          continue
+        }
 
         const txHash =
           transaction?.txHash ||
@@ -363,12 +388,17 @@ export function useCircleWallet({
           ''
 
         if (txHash) {
-          // Circle always settles on Arc, so read the receipt from the Arc RPC rather than the
-          // injected wallet, which may be pointed at an entirely different chain.
-          const receipt = await publicProvider.getTransactionReceipt(txHash)
+          try {
+            // Circle always settles on Arc, so read the receipt from the Arc RPC rather than the
+            // injected wallet, which may be pointed at an entirely different chain.
+            const receipt = await publicProvider.getTransactionReceipt(txHash)
 
-          if (receipt) {
-            return { challenge, transaction, txHash, receipt }
+            if (receipt) {
+              return { challenge, transaction, txHash, receipt }
+            }
+          } catch (receiptError) {
+            // The RPC can rate limit or blip; the receipt will still be there on the next pass.
+            lastPollError = receiptError
           }
         }
 
@@ -388,9 +418,14 @@ export function useCircleWallet({
       await wait(2000)
     }
 
+    // Running out of attempts means we stopped watching, not that the transaction failed - it has
+    // very likely already settled. Say so plainly, because the previous wording read as a failure
+    // and users retried, creating duplicate escrows for the same deal.
     throw new Error(
       lastChallenge?.errorReason ||
-        'Circle approved the transaction, but the Arc receipt took too long to show up. Refresh the page and check Manage/lookup to confirm whether it landed.',
+        (lastPollError
+          ? 'Circle approved the transaction and it was most likely created, but we lost contact while waiting for confirmation. Check Manage before trying again, so you do not create the same escrow twice.'
+          : 'Circle approved the transaction and it is taking longer than usual to confirm. It has most likely been created - check Manage before trying again, so you do not create the same escrow twice.'),
     )
   }
 
